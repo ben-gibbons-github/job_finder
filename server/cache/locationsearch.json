@@ -1,0 +1,170 @@
+{
+  "san mateo": [
+    {
+      "value": "San Mateo County|37.496904|-122.3330573",
+      "label": "San Mateo County",
+      "country": "United States",
+      "state": "California",
+      "displayLabel": "San Mateo County, California, United States",
+      "lat": 37.496904,
+      "lng": -122.3330573
+    },
+    {
+      "value": "San Mateo|37.5629997|-122.3253265",
+      "label": "San Mateo",
+      "country": "United States",
+      "state": "California",
+      "displayLabel": "San Mateo, California, United States",
+      "lat": 37.5629997,
+      "lng": -122.3253265
+    },
+    {
+      "value": "San Mateo|6.4167219|-72.5768212",
+      "label": "San Mateo",
+      "country": "Colombia",
+      "state": "Boyacá",
+      "displayLabel": "San Mateo, Boyacá, Colombia",
+      "lat": 6.4167219,
+      "lng": -72.5768212
+    },
+    {
+      "value": "San Mateo|9.960528|-84.5319038",
+      "label": "San Mateo",
+      "country": "Costa Rica",
+      "state": "Alajuela",
+      "displayLabel": "San Mateo, Alajuela, Costa Rica",
+      "lat": 9.960528,
+      "lng": -84.5319038
+    },
+    {
+      "value": "Vega de San Mateo|28.0095796|-15.5325123",
+      "label": "Vega de San Mateo",
+      "country": "España",
+      "state": "Canarias",
+      "displayLabel": "Vega de San Mateo, Canarias, España",
+      "lat": 28.0095796,
+      "lng": -15.5325123
+    },
+    {
+      "value": "San Mateo|14.6951949|121.1174024",
+      "label": "San Mateo",
+      "country": "Philippines",
+      "state": "Rizal",
+      "displayLabel": "San Mateo, Rizal, Philippines",
+      "lat": 14.6951949,
+      "lng": 121.1174024
+    },
+    {
+      "value": "Sant Mateu|40.4650329|0.1793192",
+      "label": "Sant Mateu",
+      "country": "España",
+      "state": "Comunitat Valenciana",
+      "displayLabel": "Sant Mateu, Comunitat Valenciana, España",
+      "lat": 40.4650329,
+      "lng": 0.1793192
+    },
+    {
+      "value": "San Mateo|16.88122|121.5878223",
+      "label": "San Mateo",
+      "country": "Philippines",
+      "state": "Isabela",
+      "displayLabel": "San Mateo, Isabela, Philippines",
+      "lat": 16.88122,
+      "lng": 121.5878223
+    }
+  ],
+  "san mate": [
+    {
+      "value": "San Francisco|8.4326186|126.0141724",
+      "label": "San Francisco",
+      "country": "Philippines",
+      "state": "Agusan del Sur",
+      "displayLabel": "San Francisco, Agusan del Sur, Philippines",
+      "lat": 8.4326186,
+      "lng": 126.0141724
+    },
+    {
+      "value": "Municipio de Posadas|-27.3710609|-55.9506498",
+      "label": "Municipio de Posadas",
+      "country": "Argentina",
+      "state": "Misiones",
+      "displayLabel": "Municipio de Posadas, Misiones, Argentina",
+      "lat": -27.3710609,
+      "lng": -55.9506498
+    }
+  ],
+  "san mateo county, california, united states": [
+    {
+      "value": "San Mateo County|37.496904|-122.3330573",
+      "label": "San Mateo County",
+      "country": "United States",
+      "state": "California",
+      "displayLabel": "San Mateo County, California, United States",
+      "lat": 37.496904,
+      "lng": -122.3330573
+    }
+  ],
+  "software": [
+    {
+      "value": "Berlin|52.5273582|13.4141083",
+      "label": "Berlin",
+      "country": "Deutschland",
+      "displayLabel": "Berlin, Deutschland",
+      "lat": 52.5273582,
+      "lng": 13.4141083
+    },
+    {
+      "value": "Richardson|32.9686883|-96.7183113",
+      "label": "Richardson",
+      "country": "United States",
+      "state": "Texas",
+      "displayLabel": "Richardson, Texas, United States",
+      "lat": 32.9686883,
+      "lng": -96.7183113
+    },
+    {
+      "value": "بغداد|33.2478594|44.3588894",
+      "label": "بغداد",
+      "country": "العراق",
+      "state": "محافظة بغداد",
+      "displayLabel": "بغداد, محافظة بغداد, العراق",
+      "lat": 33.2478594,
+      "lng": 44.3588894
+    },
+    {
+      "value": "Praha|50.0384349|14.4771932",
+      "label": "Praha",
+      "country": "Česko",
+      "displayLabel": "Praha, Česko",
+      "lat": 50.0384349,
+      "lng": 14.4771932
+    },
+    {
+      "value": "Nürnberg|49.4287787|11.0871723",
+      "label": "Nürnberg",
+      "country": "Deutschland",
+      "state": "Bayern",
+      "displayLabel": "Nürnberg, Bayern, Deutschland",
+      "lat": 49.4287787,
+      "lng": 11.0871723
+    },
+    {
+      "value": "Darmstadt|49.8145033|8.6366979",
+      "label": "Darmstadt",
+      "country": "Deutschland",
+      "state": "Hessen",
+      "displayLabel": "Darmstadt, Hessen, Deutschland",
+      "lat": 49.8145033,
+      "lng": 8.6366979
+    },
+    {
+      "value": "Wrocław|51.0592766|17.0137995",
+      "label": "Wrocław",
+      "country": "Polska",
+      "state": "województwo dolnośląskie",
+      "displayLabel": "Wrocław, województwo dolnośląskie, Polska",
+      "lat": 51.0592766,
+      "lng": 17.0137995
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "job_finder_super",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node -e \"const {execSync}=require('child_process');try{execSync('lsof -ti:4000,3010 | xargs kill -9',{stdio:'ignore'})}catch{}\" && concurrently --kill-others --kill-others-on-fail -n server,client -c cyan,magenta \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "test-llm": "tsx server/src/llms/testAskLLM.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "tsx": "^4.22.0"
+  }
+}

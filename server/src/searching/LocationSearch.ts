@@ -1,0 +1,76 @@
+import axios from 'axios'
+import { getCachedLocationSearch, setCachedLocationSearch } from './LocationSearchCache.js'
+
+export interface LocationOption {
+  value: string
+  label: string
+  country?: string
+  state?: string
+  displayLabel: string
+  lat: number
+  lng: number
+}
+
+export async function searchLocationsOpenStreetMap(query: string): Promise<LocationOption[]> {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (normalizedQuery.length < 2) {
+    return []
+  }
+
+  const cached = await getCachedLocationSearch(normalizedQuery)
+  if (cached) {
+    return cached
+  }
+
+  const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+    params: {
+      q: query,
+      format: 'jsonv2',
+      addressdetails: 1,
+      limit: 8,
+    },
+    headers: {
+      'User-Agent': 'JobFinder/1.0 (location-autocomplete)',
+    },
+  })
+
+  const rawResults = Array.isArray(response.data) ? response.data : []
+
+  const mapped = rawResults
+    .map((item: any): LocationOption | null => {
+      const city =
+        item?.address?.city ||
+        item?.address?.town ||
+        item?.address?.village ||
+        item?.address?.hamlet ||
+        item?.name ||
+        String(item?.display_name || '').split(',')[0]
+
+      const state = item?.address?.state
+      const country = item?.address?.country
+      const lat = Number.parseFloat(item?.lat)
+      const lng = Number.parseFloat(item?.lon)
+
+      if (!city || Number.isNaN(lat) || Number.isNaN(lng)) {
+        return null
+      }
+
+      return {
+        value: `${city}|${lat}|${lng}`,
+        label: city,
+        country,
+        state,
+        displayLabel: [city, state, country].filter(Boolean).join(', '),
+        lat,
+        lng,
+      }
+    })
+    .filter((item: LocationOption | null): item is LocationOption => item !== null)
+
+  const deduped: LocationOption[] = Array.from(
+    new Map(mapped.map((loc) => [loc.displayLabel.toLowerCase(), loc])).values()
+  )
+
+  await setCachedLocationSearch(normalizedQuery, deduped)
+  return deduped
+}

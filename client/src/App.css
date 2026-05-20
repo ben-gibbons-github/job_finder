@@ -1,0 +1,88 @@
+.app {
+  max-width: 1024px;
+  margin: 48px auto;
+  padding: 24px;
+  border: 1px solid #d6d6d6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+}
+
+.app h1 {
+  margin-top: 0;
+}
+
+.app p {
+  font-size: 1.05rem;
+}
+
+.connected {
+  color: #157347;
+}
+
+.disconnected {
+  color: #b02a37;
+}
+
+.search-controls-top {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 960px) {
+  .search-controls-top {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    align-items: start;
+  }
+}
+
+.app button {
+  margin-top: 12px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 1rem;
+  background: #111827;
+  color: #fff;
+  cursor: pointer;
+}
+
+.app button:hover {
+  background: #1f2937;
+}
+
+.resume-upload {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.resume-input {
+  display: none;
+}
+
+.resume-file-name {
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+.job-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.job-tile {
+  background: #f8f9fa;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 200px;
+  max-width: 220px;
+  flex: 1 1 200px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
