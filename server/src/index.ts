@@ -7,6 +7,9 @@ import type { ScrapedJob } from './scraping/ScrapedJob.js'
 import { scrapeJobsMain } from './scraping/ScrapeJobMain.js'
 import { searchLocationsOpenStreetMap, type LocationOption } from './searching/LocationSearch.js'
 import SearchMain, { type SearchPayload, type RankedJobWrapper } from './searching/SearchMain.js'
+import { auditJobAsync, type AuditResult } from './searching/SearchAudit.js'
+import { impactJobAIAsync, type ImpactAIResult } from './searching/SearchImpactAI.js'
+import { qualityOfLifeJobAsync } from './searching/SearchQualityOfLife.js'
 
 // Global job list
 let JOBS: ScrapedJob[] = []
@@ -109,6 +112,48 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`Socket disconnected: ${socket.id}`)
   })
+
+  socket.on(
+    'job:audit',
+    (
+      payload: { source_url?: string; name?: string; company_name?: string },
+      callback?: (response: AuditResult & { error?: string }) => void,
+    ) => {
+      console.log('Received audit request for job:', payload)
+      
+      const job = payload.source_url
+        ? JOBS.find((j) => j.source_url === payload.source_url)
+        : JOBS.find((j) => j.name === payload.name && j.company_name === payload.company_name)
+
+      if (!job) {
+        console.warn('Job not found for audit:', payload)
+        const notFound = { auditScore: 0, auditText: '', error: 'Job not found' }
+        callback?.(notFound)
+        return
+      }
+
+      auditJobAsync(job, true).then((result) => {
+        callback?.(result)
+        socket.emit('job:audit:result', { source_url: job.source_url, ...result })
+      })
+
+      qualityOfLifeJobAsync(job, true).then((result) => {
+        socket.emit('job:qualityOfLife:result', { source_url: job.source_url, ...result })
+      })
+
+      console.log('Emitting impact result for job:', job.name)
+      impactJobAIAsync(job, true).then((result: ImpactAIResult) => {
+        socket.emit('job:impact:result', {
+          source_url: job.source_url,
+          ai_impact_score: result.impactScore,
+          ai_impact_summary: result.impactSummary,
+          impactScore: result.impactScore,
+          impactSummary: result.impactSummary,
+          error: result.error,
+        })
+      })
+    },
+  )
 
   
 })

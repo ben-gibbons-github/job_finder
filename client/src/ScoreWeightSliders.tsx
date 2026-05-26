@@ -7,6 +7,7 @@ export interface ScoreWeights {
   location: number
   fresh: number
   audit: number
+  qualityOfLife: number
 }
 
 interface ScoreWeightSlidersProps {
@@ -20,6 +21,7 @@ const SLIDERS: { key: keyof ScoreWeights; label: string }[] = [
   { key: 'location', label: 'Location' },
   { key: 'fresh',    label: 'Fresh' },
   { key: 'audit',    label: 'Audit' },
+  { key: 'qualityOfLife', label: 'Quality of Life' },
 ]
 
 const ScoreWeightSliders: React.FC<ScoreWeightSlidersProps> = ({ weights, onChange }) => {

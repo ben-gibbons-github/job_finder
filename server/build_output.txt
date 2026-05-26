@@ -1,0 +1,31 @@
+
+> server@1.0.0 build
+> tsc -p tsconfig.json
+
+src/scraping/EightyKHoursAPI.ts(40,11): error TS2322: Type '({ title: string; company: string; location: string; remote: string; type: string; sourceUrl: string; description: string; tags: string[]; } | null)[]' is not assignable to type 'NormalizedPortalJob[]'.
+  Type '{ title: string; company: string; location: string; remote: string; type: string; sourceUrl: string; description: string; tags: string[]; } | null' is not assignable to type 'NormalizedPortalJob'.
+    Type 'null' is not assignable to type 'NormalizedPortalJob'.
+src/scraping/EightyKHoursAPI.ts(75,29): error TS2677: A type predicate's type must be assignable to its parameter's type.
+  Type 'NormalizedPortalJob' is not assignable to type '{ title: string; company: string; location: string; remote: string; type: string; sourceUrl: string; description: string; tags: string[]; }'.
+    Types of property 'location' are incompatible.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+src/scraping/ScrapingTests.test.ts(4,1): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/scraping/ScrapingTests.test.ts(5,3): error TS2593: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/scraping/ScrapingTests.test.ts(22,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(31,7): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(35,3): error TS2593: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/scraping/ScrapingTests.test.ts(51,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(52,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(53,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(54,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(55,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(56,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(59,3): error TS2593: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/scraping/ScrapingTests.test.ts(75,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(76,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(77,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(78,5): error TS2304: Cannot find name 'expect'.
+src/scraping/ScrapingTests.test.ts(79,5): error TS2304: Cannot find name 'expect'.
+src/utils/Tests.test.ts(2,54): error TS2307: Cannot find module 'vitest' or its corresponding type declarations.
+src/utils/Tests.test.ts(3,64): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './NameToLonLat.js'?

@@ -9,6 +9,7 @@ export interface ScoreWeights {
   location: number
   fresh: number
   audit: number
+  qualityOfLife: number
 }
 
 /**
@@ -37,6 +38,8 @@ export interface SearchPayload {
   resume?: object
   scoreWeights?: ScoreWeights
   searchLogFlags?: SearchLogFlags
+  hiddenJobUrls?: string[]
+  hiddenCompanies?: string[]
   [key: string]: any
 }
 
@@ -49,6 +52,7 @@ export interface JobScores {
   location: number
   fresh: number
   audit: number
+  qualityOfLife: number
 }
 
 /**

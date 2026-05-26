@@ -117,6 +117,8 @@ function normalizeJob(job) {
         ai_red_flag_summary: '',
         ai_score: 0,
         ai_red_flag_score: 0,
+        ai_impact_summary: '',
+        ai_impact_score: 0,
     };
 }
 async function fetchEmbeddedJobsFromPage() {

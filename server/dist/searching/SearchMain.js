@@ -1,10 +1,17 @@
-import { auditJob } from './SearchAudit.js';
 import { geocodeUserLocation, geocodeJobLocations } from './SearchDistance.js';
 import { calculateIndividualScores, jobMatchesQuery } from './SearchUtils.js';
+const SERVER_HIDDEN_EXCLUSIONS_ENABLED = true;
+function normalizeExactUrl(value) {
+    return String(value ?? '').trim();
+}
+function normalizeExactCompanyName(value) {
+    return String(value ?? '').trim().toLowerCase();
+}
 class SearchMain {
-    async search(jobs, searchPayload, onAuditUpdate) {
+    async search(jobs, searchPayload) {
         const logFlags = searchPayload.searchLogFlags ?? {};
         const logSearchMain = logFlags.searchMain === true;
+        const hiddenExclusionsEnabled = SERVER_HIDDEN_EXCLUSIONS_ENABLED;
         const rawQueryValue = searchPayload.query;
         const rawQuery = typeof rawQueryValue === 'string' ? rawQueryValue : '';
         const queryTerms = rawQuery
@@ -13,10 +20,31 @@ class SearchMain {
             .split(/\s+/)
             .map((term) => term.trim())
             .filter((term) => term.length > 0);
+        const hiddenJobUrls = hiddenExclusionsEnabled && Array.isArray(searchPayload.hiddenJobUrls)
+            ? new Set(searchPayload.hiddenJobUrls
+                .map((value) => normalizeExactUrl(value))
+                .filter((value) => value.length > 0))
+            : new Set();
+        const hiddenCompanies = hiddenExclusionsEnabled && Array.isArray(searchPayload.hiddenCompanies)
+            ? new Set(searchPayload.hiddenCompanies
+                .map((value) => normalizeExactCompanyName(value))
+                .filter((value) => value.length > 0))
+            : new Set();
+        const visibleJobs = jobs.filter((job) => {
+            const sourceUrl = normalizeExactUrl(job.source_url);
+            const companyName = normalizeExactCompanyName(job.company_name);
+            if (sourceUrl && hiddenJobUrls.has(sourceUrl)) {
+                return false;
+            }
+            if (companyName && hiddenCompanies.has(companyName)) {
+                return false;
+            }
+            return true;
+        });
         if (logSearchMain) {
-            console.log('SearchMain.search called with query:', rawQuery, 'parsed terms:', queryTerms, 'locationText:', searchPayload.locationText, 'resumeText length:', typeof searchPayload.resumeText === 'string' ? searchPayload.resumeText.length : 'N/A');
+            console.log('SearchMain.search called with query:', rawQuery, 'parsed terms:', queryTerms, 'locationText:', searchPayload.locationText, 'resumeText length:', typeof searchPayload.resumeText === 'string' ? searchPayload.resumeText.length : 'N/A', 'hiddenExclusionsEnabled:', hiddenExclusionsEnabled, 'hiddenJobUrls:', hiddenJobUrls.size, 'hiddenCompanies:', hiddenCompanies.size);
         }
-        const matched = jobs.filter((job) => jobMatchesQuery(job, queryTerms, logFlags.query === true));
+        const matched = visibleJobs.filter((job) => jobMatchesQuery(job, queryTerms, logFlags.query === true));
         const resumeText = typeof searchPayload.resumeText === 'string' ? searchPayload.resumeText : '';
         const locationText = typeof searchPayload.locationText === 'string' ? searchPayload.locationText : '';
         // Geocode user location
@@ -56,24 +84,10 @@ class SearchMain {
             console.log('SearchPayload: ' + JSON.stringify(searchPayload));
         }
         const sliced = rankedWrappers.slice(start, end);
-        sliced.map((wrapper) => {
-            const shouldLaunch = true;
-            wrapper.scores.audit = Math.min(auditJob(wrapper.job, logFlags.audit === true, shouldLaunch, (finalAuditScore) => {
-                const normalizedAuditScore = Math.min(Math.max(finalAuditScore / 100, 0), 1);
-                wrapper.scores.audit = normalizedAuditScore;
-                wrapper.totalScore =
-                    (wrapper.scores.resume ?? 0) * (searchPayload.scoreWeights?.resume ?? 1) +
-                        (wrapper.scores.impact ?? 0) * (searchPayload.scoreWeights?.impact ?? 1) +
-                        (wrapper.scores.location ?? 0) * (searchPayload.scoreWeights?.location ?? 1) +
-                        (wrapper.scores.fresh ?? 0) * (searchPayload.scoreWeights?.fresh ?? 1) +
-                        (wrapper.scores.audit ?? 0) * (searchPayload.scoreWeights?.audit ?? 1);
-                onAuditUpdate?.({
-                    job: wrapper.job,
-                    scores: { ...wrapper.scores },
-                    totalScore: wrapper.totalScore,
-                });
-            }) / 100, 1.0);
-        });
+        // sliced.map((wrapper, index) => {
+        //   const shouldLaunch = true
+        //   wrapper.scores.audit = Math.min(auditJob(wrapper.job, logFlags.audit === true, shouldLaunch) / 100, 1.0)
+        // })
         return { matched: sliced, size: rankedWrappers.length };
     }
 }

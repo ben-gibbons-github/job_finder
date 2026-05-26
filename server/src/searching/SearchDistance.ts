@@ -45,6 +45,117 @@ function toSafeText(value: unknown): string {
   return String(value).toLowerCase()
 }
 
+interface CountryAlias {
+  canonical: string
+  aliases: string[]
+}
+
+const COUNTRY_ALIASES: CountryAlias[] = [
+  { canonical: 'united states', aliases: ['united states', 'united states of america', 'usa', 'us'] },
+  { canonical: 'united kingdom', aliases: ['united kingdom', 'uk', 'great britain', 'britain', 'england'] },
+  { canonical: 'canada', aliases: ['canada'] },
+  { canonical: 'australia', aliases: ['australia'] },
+  { canonical: 'new zealand', aliases: ['new zealand'] },
+  { canonical: 'germany', aliases: ['germany', 'deutschland'] },
+  { canonical: 'france', aliases: ['france'] },
+  { canonical: 'spain', aliases: ['spain'] },
+  { canonical: 'italy', aliases: ['italy'] },
+  { canonical: 'netherlands', aliases: ['netherlands', 'holland'] },
+  { canonical: 'sweden', aliases: ['sweden'] },
+  { canonical: 'norway', aliases: ['norway'] },
+  { canonical: 'denmark', aliases: ['denmark'] },
+  { canonical: 'finland', aliases: ['finland'] },
+  { canonical: 'ireland', aliases: ['ireland'] },
+  { canonical: 'switzerland', aliases: ['switzerland'] },
+  { canonical: 'austria', aliases: ['austria'] },
+  { canonical: 'belgium', aliases: ['belgium'] },
+  { canonical: 'portugal', aliases: ['portugal'] },
+  { canonical: 'poland', aliases: ['poland'] },
+  { canonical: 'czechia', aliases: ['czechia', 'czech republic'] },
+  { canonical: 'romania', aliases: ['romania'] },
+  { canonical: 'hungary', aliases: ['hungary'] },
+  { canonical: 'greece', aliases: ['greece'] },
+  { canonical: 'india', aliases: ['india'] },
+  { canonical: 'pakistan', aliases: ['pakistan'] },
+  { canonical: 'bangladesh', aliases: ['bangladesh'] },
+  { canonical: 'japan', aliases: ['japan'] },
+  { canonical: 'south korea', aliases: ['south korea', 'korea'] },
+  { canonical: 'singapore', aliases: ['singapore'] },
+  { canonical: 'philippines', aliases: ['philippines'] },
+  { canonical: 'thailand', aliases: ['thailand'] },
+  { canonical: 'vietnam', aliases: ['vietnam'] },
+  { canonical: 'indonesia', aliases: ['indonesia'] },
+  { canonical: 'malaysia', aliases: ['malaysia'] },
+  { canonical: 'united arab emirates', aliases: ['united arab emirates', 'uae'] },
+  { canonical: 'saudi arabia', aliases: ['saudi arabia'] },
+  { canonical: 'israel', aliases: ['israel'] },
+  { canonical: 'turkiye', aliases: ['turkiye', 'turkey'] },
+  { canonical: 'south africa', aliases: ['south africa'] },
+  { canonical: 'nigeria', aliases: ['nigeria'] },
+  { canonical: 'kenya', aliases: ['kenya'] },
+  { canonical: 'egypt', aliases: ['egypt'] },
+  { canonical: 'mexico', aliases: ['mexico'] },
+  { canonical: 'brazil', aliases: ['brazil'] },
+  { canonical: 'argentina', aliases: ['argentina'] },
+  { canonical: 'chile', aliases: ['chile'] },
+  { canonical: 'colombia', aliases: ['colombia'] },
+  { canonical: 'peru', aliases: ['peru'] },
+]
+
+function detectCountryFromText(text: string): string | null {
+  const normalized = toSafeText(text)
+  if (!normalized) {
+    return null
+  }
+
+  for (const entry of COUNTRY_ALIASES) {
+    for (const alias of entry.aliases) {
+      const pattern = new RegExp(`(^|[^a-z])${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`, 'i')
+      if (pattern.test(normalized)) {
+        return entry.canonical
+      }
+    }
+  }
+
+  return null
+}
+
+function isPurelyRemoteJob(job: ScrapedJob): boolean {
+  const loc = toSafeText(job.location)
+  const typ = toSafeText(job.remote) + ' ' + toSafeText(job.type)
+  const combined = `${loc} ${typ}`
+  const hasRemoteSignal = /\bremote\b|\banywhere\b|\bdistributed\b|work from home/.test(combined)
+  return hasRemoteSignal
+}
+
+function hasGenericOrMissingLocation(job: ScrapedJob): boolean {
+  const location = toSafeText(job.location).trim()
+  if (!location || location === 'unknown' || location === 'n/a' || location === 'na') {
+    return true
+  }
+
+  return /^(remote|anywhere|distributed|work from home|remote only|remote role|remote job)$/i.test(location)
+}
+
+function isRemoteSameCountryAsOrigin(job: ScrapedJob, locationText: string): boolean {
+  const originCountry = detectCountryFromText(locationText)
+  if (!originCountry) {
+    return false
+  }
+
+  const jobCountry = detectCountryFromText(`${job.location} ${job.description} ${job.type}`)
+  return jobCountry !== null && jobCountry === originCountry
+}
+
+function isRemoteWithNoCountryAttached(job: ScrapedJob): boolean {
+  if (!isPurelyRemoteJob(job) || !hasGenericOrMissingLocation(job)) {
+    return false
+  }
+
+  const jobCountry = detectCountryFromText(`${job.location} ${job.description} ${job.type}`)
+  return jobCountry === null
+}
+
 /**
  * Detects if a job is marked as remote or work-from-home
  * 
@@ -81,6 +192,20 @@ export function calculateLocationScore(
   locationText: string,
   shouldLog = false
 ): number {
+  if (isPurelyRemoteJob(job)) {
+    if (shouldLog) {
+      console.log(`Location score override for remote same-country job "${job.name}": 1.0000`)
+    }
+    return 1
+  }
+
+  if (isRemoteWithNoCountryAttached(job)) {
+    if (shouldLog) {
+      console.log(`Location score override for remote unknown-country job "${job.name}": 0.9500`)
+    }
+    return 0.95
+  }
+
   let distanceScore = 0
   const normalizedUserLocationText = toSafeText(locationText).trim()
   const normalizedJobLocation = toSafeText(job.location)
@@ -127,13 +252,8 @@ export function calculateLocationScore(
     }
   }
   
-  // Apply remote job boost
   const remote = isRemoteJob(job) || normalizedUserLocationText.includes('remote')
-  if (remote) {
-    if (false)
-        distanceScore = Math.max(distanceScore, 0.5)
-  }
-  
+
   if (shouldLog) {
     console.log(`Final location score for job "${job.name}" at "${job.location}": ${distanceScore.toFixed(4)} (remote: ${remote})`)
   }

@@ -3,8 +3,10 @@ import type { JobScores, SearchLogFlags } from './SearchInterfaces.js'
 import { calculateFreshnessScore } from './SearchFreshness.js'
 import { calculateLocationScore } from './SearchDistance.js'
 import { calculateImpactScore } from './SearchImpact.js'
+import { impactJobAI } from './SearchImpactAI.js'
 import { auditJob } from './SearchAudit.js'
 import { toSafeText, calculateResumeScore } from './SearchResumeMatch.js'
+import { qualityOfLifeJob } from './SearchQualityOfLife.js'
 
 /**
  * Calculate individual score components for a job
@@ -31,7 +33,10 @@ export function calculateIndividualScores(
   // Location score (based on distance and remote status)
   const locationScore = calculateLocationScore(userLat, userLon, job, locationText, logFlags.location === true)
 
-  // Impact score (keyword scan + source impact prior)
+  // Warm any cached AI impact result without launching a new background call.
+  impactJobAI(job, logFlags.impact === true, false)
+
+  // Impact score (keyword scan + existing AI impact fields when available)
   const impactScore = calculateImpactScore(job, logFlags.impact === true)
 
   // Freshness score
@@ -40,6 +45,8 @@ export function calculateIndividualScores(
   // Audit score from background audit pipeline (normalized to 0-1)
   const shouldLaunch = false
   const auditScore = Math.min(auditJob(job, logFlags.audit === true, shouldLaunch) / 100, 1.0)
+
+  const qualityOfLifeScore = qualityOfLifeJob(job, logFlags.audit === true, shouldLaunch) / 100 
 
   if (logFlags.audit === true || logFlags.searchMain === true) {
     console.log('Calculated scores for job:', {
@@ -50,6 +57,7 @@ export function calculateIndividualScores(
       locationScore,
       freshnessScore,
       auditScore,
+      qualityOfLifeScore,
     })
   }
 
@@ -59,6 +67,7 @@ export function calculateIndividualScores(
     location: locationScore,
     fresh: freshnessScore,
     audit: auditScore,
+    qualityOfLife: qualityOfLifeScore,
   }
 }
 

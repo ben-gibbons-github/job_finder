@@ -40,6 +40,29 @@ const IMPACT_CATEGORIES = {
             { phrase: 'community health worker', weight: 2.0 },
         ],
     },
+    socialJustice: {
+        weight: 1.08,
+        saturationWeight: 4.3,
+        keywords: [
+            { phrase: 'civil rights', weight: 2.0 },
+            { phrase: 'human rights', weight: 1.9 },
+            { phrase: 'racial justice', weight: 2.0 },
+            { phrase: 'economic justice', weight: 1.8 },
+            { phrase: 'restorative justice', weight: 1.9 },
+            { phrase: 'criminal justice reform', weight: 2.0 },
+            { phrase: 'legal aid', weight: 1.8 },
+            { phrase: 'public defender', weight: 1.9 },
+            { phrase: 'voting rights', weight: 1.9 },
+            { phrase: 'worker rights', weight: 1.8 },
+            { phrase: 'labor rights', weight: 1.8 },
+            { phrase: 'tenant rights', weight: 1.8 },
+            { phrase: 'anti discrimination', weight: 1.9 },
+            { phrase: 'anti-discrimination', weight: 1.9 },
+            { phrase: 'justice impacted', weight: 1.8 },
+            { phrase: 'equitable access', weight: 1.7 },
+            { phrase: 'social justice', weight: 2.0 },
+        ],
+    },
     education: {
         weight: 0.95,
         saturationWeight: 4.2,
@@ -327,6 +350,30 @@ const IMPACT_CATEGORIES = {
             { phrase: 'rehabilitation', weight: 1.6 },
         ],
     },
+    childProtection: {
+        weight: 1.16,
+        saturationWeight: 4.0,
+        keywords: [
+            { phrase: 'child safety', weight: 2.1 },
+            { phrase: 'protect kids', weight: 2.1 },
+            { phrase: 'protect children', weight: 2.1 },
+            { phrase: 'child welfare', weight: 2.0 },
+            { phrase: 'child protection', weight: 2.0 },
+            { phrase: 'youth services', weight: 1.7 },
+            { phrase: 'youth mental health', weight: 1.9 },
+            { phrase: 'pediatric', weight: 1.8 },
+            { phrase: 'pediatrics', weight: 1.8 },
+            { phrase: 'newborn care', weight: 1.9 },
+            { phrase: 'maternal and child health', weight: 2.0 },
+            { phrase: 'child abuse prevention', weight: 2.1 },
+            { phrase: 'foster care', weight: 1.9 },
+            { phrase: 'family services', weight: 1.7 },
+            { phrase: 'child development', weight: 1.7 },
+            { phrase: 'safe schools', weight: 1.8 },
+            { phrase: 'school counseling', weight: 1.7 },
+            { phrase: 'early intervention', weight: 1.7 },
+        ],
+    },
 };
 const FIELD_WEIGHTS = {
     name: 1.75,
@@ -346,6 +393,7 @@ const SCORE_WEIGHTS = {
     partialPhraseMultiplier: 0.42,
     multiWordPhraseBonus: 1.08,
     singleWordPhrasePenalty: 0.94,
+    minTokenLengthForFallback: 4,
     // Category scoring
     categorySaturationSoftener: 1.0,
     categoryActivationThreshold: 0.1,
@@ -365,26 +413,49 @@ const SCORE_WEIGHTS = {
     redFlagPenaltyScale: 0.12,
     redFlagPenaltyCap: 0.18,
     vagueRolePenalty: 0.02,
+    commercialOnlyPenaltyScale: 0.06,
+    commercialOnlyPenaltyCap: 0.24,
+    moneyOnlyPenaltyScale: 0.1,
+    moneyOnlyPenaltyCap: 0.3,
+    environmentHarmPenaltyScale: 0.16,
+    environmentHarmPenaltyCap: 0.42,
+    defensePenaltyScale: 0.18,
+    defensePenaltyCap: 0.46,
+    // Hard caps for explicitly harmful domains.
+    defenseHardScoreCap: 0.2,
+    environmentHarmHardScoreCap: 0.24,
+    moneyOnlyHardScoreCap: 0.22,
+    // Evidence guardrails
+    minCategoryCountForUncappedScore: 2,
+    lowEvidenceScoreCap: 0.34,
     // Existing model blending
-    existingImpactBlendWeight: 0.12,
-    keywordImpactBlendWeight: 0.88,
+    existingImpactBlendWeight: 0,
+    keywordImpactBlendWeight: 1,
     // Final calibration
     finalExponent: 0.95,
     finalFloor: 0,
     finalCeiling: 1,
 };
 const IMPACT_ACTION_TERMS = [
-    'improve',
-    'reduce',
-    'prevent',
+    'save lives',
+    'reduce mortality',
+    'prevent overdose',
+    'prevent suicide',
+    'protect children',
+    'protect kids',
+    'improve learning outcomes',
+    'increase graduation',
+    'reduce injustice',
     'increase access',
     'serve communities',
     'expand access',
-    'deploy',
     'deliver care',
-    'protect',
-    'support',
     'scale impact',
+    'disease prevention',
+    'reduce emissions',
+    'carbon reduction',
+    'decarbonization',
+    'restore ecosystems',
 ];
 const RED_FLAG_TERMS = [
     'not mission-driven',
@@ -396,6 +467,93 @@ const RED_FLAG_TERMS = [
     'predatory lending',
 ];
 const VAGUE_ROLE_TERMS = ['generalist', 'miscellaneous', 'other duties as assigned'];
+const COMMERCIAL_ONLY_TERMS = [
+    'accept payments',
+    'payment processing',
+    'payment infrastructure',
+    'increase revenue',
+    'growth at all costs',
+    'developer productivity',
+    'internal tooling',
+    'operational excellence',
+    'maximize profit',
+    'increase the gdp of the internet',
+    'financial infrastructure platform',
+    'enterprise sales',
+];
+const MONEY_ONLY_TERMS = [
+    'shareholder value',
+    'maximize shareholder value',
+    'quarterly earnings',
+    'revenue growth at all costs',
+    'profit maximization',
+    'increase arpu',
+    'monetization strategy',
+    'ad conversion optimization',
+    'upsell',
+    'cross-sell',
+    'sales pipeline acceleration',
+];
+const ENVIRONMENT_HARM_TERMS = [
+    'coal mining',
+    'coal extraction',
+    'oil and gas expansion',
+    'petroleum extraction',
+    'tar sands',
+    'fracking',
+    'pipeline expansion',
+    'deforestation',
+    'clear-cutting',
+    'mountaintop removal',
+    'deep sea drilling',
+    'petrochemical expansion',
+    'high-emission fuels',
+    'fossil fuel growth',
+    'emissions trading only',
+];
+const DEFENSE_SURVEILLANCE_MILITARY_TERMS = [
+    'defense contractor',
+    'military intelligence',
+    'warfighter',
+    'weapons systems',
+    'missile guidance',
+    'target acquisition',
+    'battlefield',
+    'lethal autonomy',
+    'counterinsurgency',
+    'signals intelligence',
+    'geospatial intelligence',
+    'mass surveillance',
+    'facial recognition surveillance',
+    'lawful intercept',
+    'drone strike',
+    'weapon platform',
+];
+const STRONG_MISSION_SIGNAL_TERMS = [
+    'climate action',
+    'decarbonization',
+    'carbon reduction',
+    'carbon removal',
+    'renewable energy',
+    'public health',
+    'mental health',
+    'accessibility',
+    'assistive technology',
+    'disability',
+    'community support',
+    'social impact',
+    'life-saving',
+    'disease prevention',
+    'educational equity',
+    'civil rights',
+    'social justice',
+    'child safety',
+    'child welfare',
+    'protect children',
+    'protect kids',
+    'youth mental health',
+    'save lives',
+];
 function clamp01(value) {
     return Math.max(0, Math.min(1, value));
 }
@@ -473,27 +631,34 @@ function textContainsAny(text, phrases) {
  *
  * The score is composed from six categories:
  * - community support
+ * - social justice
  * - teaching / education
  * - mental health
  * - medical / life saving
  * - green tech / carbon reduction
  * - assisting disabled people / accessibility
+ * - child protection
  *
  * Each category uses saturation so repeated matches do not inflate the score indefinitely.
- * If `impact_number` already exists, it is returned as-is.
- * Otherwise this function computes the score and stores it on `job.impact_number`.
+ * This function recomputes impact from job text each time and stores it on `job.impact_number`.
+ * Existing `impact_number` values are treated as informational only (for debug logs) and do not bypass scoring.
  *
  * @param job - The job to score
  * @returns Impact score between 0 and 1
  */
 export function calculateImpactScore(job, shouldLog = false) {
-    const existingImpact = normalizeImpactNumber(job.impact_number);
-    if (existingImpact > 0) {
+    const aiImpactSummary = String(job.ai_impact_summary ?? '').trim();
+    const aiImpactScore = normalizeImpactNumber(job.ai_impact_score);
+    if (aiImpactSummary.length > 0) {
         if (shouldLog) {
-            console.log('Using existing impact_number for job:', job.name, 'value:', existingImpact);
+            console.log('Using AI impact score for job:', job.name, 'value:', aiImpactScore);
         }
-        job.impact_number = existingImpact;
-        return job.impact_number;
+        job.impact_number = aiImpactScore;
+        return aiImpactScore;
+    }
+    const existingImpact = normalizeImpactNumber(job.impact_number);
+    if (shouldLog && existingImpact > 0) {
+        console.log('Ignoring existing impact_number and recomputing from text for job:', job.name, 'value:', existingImpact);
     }
     const searchableText = toSearchableText(job);
     if (!searchableText) {
@@ -513,7 +678,8 @@ export function calculateImpactScore(job, shouldLog = false) {
     for (const [categoryName, category] of Object.entries(IMPACT_CATEGORIES)) {
         let matchedWeight = 0;
         for (const keyword of category.keywords) {
-            const phraseTokenCount = tokenize(keyword.phrase).length;
+            const phraseTokens = tokenize(keyword.phrase);
+            const phraseTokenCount = phraseTokens.length;
             const phraseStructureMultiplier = phraseTokenCount > 1
                 ? SCORE_WEIGHTS.multiWordPhraseBonus
                 : SCORE_WEIGHTS.singleWordPhrasePenalty;
@@ -532,16 +698,19 @@ export function calculateImpactScore(job, shouldLog = false) {
                 continue;
             }
             // Token-level fallback for mild morphology differences.
-            const keywordTokens = tokenize(keyword.phrase);
-            const partiallyMatchedTokens = keywordTokens.filter((token) => Array.from(searchableTokens).some((candidate) => candidate.includes(token) || token.includes(candidate))).length;
-            if (keywordTokens.length > 0 &&
-                keywordTokens.every((token) => Array.from(searchableTokens).some((candidate) => candidate.startsWith(token) || token.startsWith(candidate)))) {
+            const keywordTokensForFallback = phraseTokens.filter((token) => token.length >= SCORE_WEIGHTS.minTokenLengthForFallback);
+            const partiallyMatchedTokens = keywordTokensForFallback.filter((token) => Array.from(searchableTokens).some((candidate) => candidate.length >= SCORE_WEIGHTS.minTokenLengthForFallback &&
+                (candidate.includes(token) || token.includes(candidate)))).length;
+            if (keywordTokensForFallback.length > 1 &&
+                keywordTokensForFallback.every((token) => Array.from(searchableTokens).some((candidate) => candidate.length >= SCORE_WEIGHTS.minTokenLengthForFallback &&
+                    (candidate.startsWith(token) || token.startsWith(candidate))))) {
                 matchedWeight +=
                     keyword.weight *
                         SCORE_WEIGHTS.tokenFallbackMultiplier *
                         phraseStructureMultiplier;
             }
-            else if (keywordTokens.length > 1 && partiallyMatchedTokens >= Math.ceil(keywordTokens.length * 0.6)) {
+            else if (keywordTokensForFallback.length > 1 &&
+                partiallyMatchedTokens >= Math.ceil(keywordTokensForFallback.length * 0.7)) {
                 matchedWeight += keyword.weight * SCORE_WEIGHTS.partialPhraseMultiplier;
             }
         }
@@ -571,8 +740,39 @@ export function calculateImpactScore(job, shouldLog = false) {
     const redFlagPenalty = Math.min(SCORE_WEIGHTS.redFlagPenaltyCap, redFlagHits * SCORE_WEIGHTS.redFlagPenaltyScale);
     const vagueRoleHits = textContainsAny(searchableText, VAGUE_ROLE_TERMS);
     const vagueRolePenalty = vagueRoleHits > 0 ? SCORE_WEIGHTS.vagueRolePenalty : 0;
-    const preBlendKeywordScore = clamp01(categoryBlendScore + actionBonus + diversityBonus + crossDomainBonus - redFlagPenalty - vagueRolePenalty);
-    const keywordImpactScore = clamp01(preBlendKeywordScore * SCORE_WEIGHTS.keywordImpactBlendWeight +
+    const commercialOnlyHits = textContainsAny(searchableText, COMMERCIAL_ONLY_TERMS);
+    const commercialOnlyPenalty = Math.min(SCORE_WEIGHTS.commercialOnlyPenaltyCap, commercialOnlyHits * SCORE_WEIGHTS.commercialOnlyPenaltyScale);
+    const moneyOnlyHits = textContainsAny(searchableText, MONEY_ONLY_TERMS);
+    const moneyOnlyPenalty = Math.min(SCORE_WEIGHTS.moneyOnlyPenaltyCap, moneyOnlyHits * SCORE_WEIGHTS.moneyOnlyPenaltyScale);
+    const environmentHarmHits = textContainsAny(searchableText, ENVIRONMENT_HARM_TERMS);
+    const environmentHarmPenalty = Math.min(SCORE_WEIGHTS.environmentHarmPenaltyCap, environmentHarmHits * SCORE_WEIGHTS.environmentHarmPenaltyScale);
+    const defenseSurveillanceHits = textContainsAny(searchableText, DEFENSE_SURVEILLANCE_MILITARY_TERMS);
+    const defensePenalty = Math.min(SCORE_WEIGHTS.defensePenaltyCap, defenseSurveillanceHits * SCORE_WEIGHTS.defensePenaltyScale);
+    const strongMissionSignalHits = textContainsAny(searchableText, STRONG_MISSION_SIGNAL_TERMS);
+    const preBlendKeywordScore = clamp01(categoryBlendScore +
+        actionBonus +
+        diversityBonus +
+        crossDomainBonus -
+        redFlagPenalty -
+        vagueRolePenalty -
+        commercialOnlyPenalty -
+        moneyOnlyPenalty -
+        environmentHarmPenalty -
+        defensePenalty);
+    let evidenceAdjustedKeywordScore = matchedCategoryCount < SCORE_WEIGHTS.minCategoryCountForUncappedScore && strongMissionSignalHits === 0
+        ? Math.min(preBlendKeywordScore, SCORE_WEIGHTS.lowEvidenceScoreCap)
+        : preBlendKeywordScore;
+    // Explicitly downscore clearly harmful domains unless there is exceptionally strong mission evidence.
+    if (defenseSurveillanceHits > 0 && strongMissionSignalHits === 0) {
+        evidenceAdjustedKeywordScore = Math.min(evidenceAdjustedKeywordScore, SCORE_WEIGHTS.defenseHardScoreCap);
+    }
+    if (environmentHarmHits > 0 && (categoryScores.greenTechCarbonReduction ?? 0) < 0.2) {
+        evidenceAdjustedKeywordScore = Math.min(evidenceAdjustedKeywordScore, SCORE_WEIGHTS.environmentHarmHardScoreCap);
+    }
+    if (moneyOnlyHits >= 2 && matchedCategoryCount < 2 && strongMissionSignalHits === 0) {
+        evidenceAdjustedKeywordScore = Math.min(evidenceAdjustedKeywordScore, SCORE_WEIGHTS.moneyOnlyHardScoreCap);
+    }
+    const keywordImpactScore = clamp01(evidenceAdjustedKeywordScore * SCORE_WEIGHTS.keywordImpactBlendWeight +
         existingImpact * SCORE_WEIGHTS.existingImpactBlendWeight);
     const calibratedImpactScore = clamp01(Math.pow(keywordImpactScore, SCORE_WEIGHTS.finalExponent));
     const boundedImpactScore = Math.max(SCORE_WEIGHTS.finalFloor, Math.min(SCORE_WEIGHTS.finalCeiling, calibratedImpactScore));
@@ -584,6 +784,11 @@ export function calculateImpactScore(job, shouldLog = false) {
             actionHits,
             redFlagHits,
             vagueRoleHits,
+            commercialOnlyHits,
+            moneyOnlyHits,
+            environmentHarmHits,
+            defenseSurveillanceHits,
+            strongMissionSignalHits,
             weightedCategoryScoreSum,
             totalCategoryWeight,
             rawCategoryBlendScore,
@@ -593,12 +798,17 @@ export function calculateImpactScore(job, shouldLog = false) {
             crossDomainBonus,
             redFlagPenalty,
             vagueRolePenalty,
+            commercialOnlyPenalty,
+            moneyOnlyPenalty,
+            environmentHarmPenalty,
+            defensePenalty,
             preBlendKeywordScore,
+            evidenceAdjustedKeywordScore,
             keywordImpactScore,
             calibratedImpactScore,
             boundedImpactScore,
         });
     }
-    job.impact_number = boundedImpactScore * 2.25;
+    job.impact_number = boundedImpactScore;
     return job.impact_number;
 }

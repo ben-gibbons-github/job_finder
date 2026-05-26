@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 
 import type { ScrapedJob } from './ScrapedJob.js';
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_DIR = path.resolve(process.cwd(), 'cache');
 
 function cacheFilePath(componentName: string): string {

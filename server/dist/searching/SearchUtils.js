@@ -1,6 +1,7 @@
 import { calculateFreshnessScore } from './SearchFreshness.js';
 import { calculateLocationScore } from './SearchDistance.js';
 import { calculateImpactScore } from './SearchImpact.js';
+import { impactJobAI } from './SearchImpactAI.js';
 import { auditJob } from './SearchAudit.js';
 import { toSafeText, calculateResumeScore } from './SearchResumeMatch.js';
 /**
@@ -18,7 +19,9 @@ export function calculateIndividualScores(job, resumeText, locationText, userLat
     const resumeScore = calculateResumeScore(job, resumeText, logFlags.resume === true);
     // Location score (based on distance and remote status)
     const locationScore = calculateLocationScore(userLat, userLon, job, locationText, logFlags.location === true);
-    // Impact score (keyword scan + source impact prior)
+    // Warm any cached AI impact result without launching a new background call.
+    impactJobAI(job, logFlags.impact === true, false);
+    // Impact score (keyword scan + existing AI impact fields when available)
     const impactScore = calculateImpactScore(job, logFlags.impact === true);
     // Freshness score
     const freshnessScore = calculateFreshnessScore(job.posted, logFlags.fresh === true);

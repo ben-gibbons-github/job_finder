@@ -256,6 +256,7 @@ export async function askGeminiWithSearch(
 			throw new Error('Gemini returned an empty response.')
 		}
 
+		console.log(`Gemini response for question "${question}": ${answer}`)
 		answers.push({ question, answer })
 		await setCachedAnswer(question, answer)
 		history.push({ role: 'model', parts: [{ text: answer }] })

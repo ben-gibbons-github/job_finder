@@ -5,6 +5,8 @@ import { Server } from 'socket.io';
 import { scrapeJobsMain } from './scraping/ScrapeJobMain.js';
 import { searchLocationsOpenStreetMap } from './searching/LocationSearch.js';
 import SearchMain from './searching/SearchMain.js';
+import { auditJobAsync } from './searching/SearchAudit.js';
+import { impactJobAIAsync } from './searching/SearchImpactAI.js';
 // Global job list
 let JOBS = [];
 const searchMain = new SearchMain();
@@ -42,9 +44,7 @@ io.on('connection', (socket) => {
             // console.log('payload', payload)
             ;
             (async () => {
-                const results = await searchMain.search(JOBS, payload, (updatedWrapper) => {
-                    socket.emit('search:auditUpdate', { wrapper: updatedWrapper });
-                });
+                const results = await searchMain.search(JOBS, payload);
                 const response = {
                     results: results.matched,
                     total: results.size,
@@ -84,6 +84,33 @@ io.on('connection', (socket) => {
     });
     socket.on('disconnect', () => {
         console.log(`Socket disconnected: ${socket.id}`);
+    });
+    socket.on('job:audit', (payload, callback) => {
+        console.log('Received audit request for job:', payload);
+        const job = payload.source_url
+            ? JOBS.find((j) => j.source_url === payload.source_url)
+            : JOBS.find((j) => j.name === payload.name && j.company_name === payload.company_name);
+        if (!job) {
+            console.warn('Job not found for audit:', payload);
+            const notFound = { auditScore: 0, auditText: '', error: 'Job not found' };
+            callback?.(notFound);
+            return;
+        }
+        auditJobAsync(job, true).then((result) => {
+            callback?.(result);
+            socket.emit('job:audit:result', { source_url: job.source_url, ...result });
+        });
+        console.log('Emitting impact result for job:', job.name);
+        impactJobAIAsync(job, true).then((result) => {
+            socket.emit('job:impact:result', {
+                source_url: job.source_url,
+                ai_impact_score: result.impactScore,
+                ai_impact_summary: result.impactSummary,
+                impactScore: result.impactScore,
+                impactSummary: result.impactSummary,
+                error: result.error,
+            });
+        });
     });
 });
 httpServer.listen(PORT, () => {

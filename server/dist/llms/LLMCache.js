@@ -16,7 +16,9 @@ async function ensureCacheLoaded() {
             const raw = await fs.readFile(CACHE_FILE_PATH, 'utf8');
             const parsed = JSON.parse(raw);
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                cache = Object.fromEntries(Object.entries(parsed).filter(([key, value]) => typeof key === 'string' && typeof value === 'string'));
+                cache = Object.fromEntries(Object.entries(parsed)
+                    .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
+                    .map(([key, value]) => [key, value]));
             }
         }
         catch {

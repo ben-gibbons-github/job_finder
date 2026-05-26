@@ -24,6 +24,8 @@ interface JobTileDropdownProps {
   resumeDisplayName?: string;
   selectedResumeIds?: string[];
   resumeCatalogById?: Record<string, ResumeCatalogEntry>;
+  onHideJob?: (jobUrl?: string) => void;
+  onHideCompany?: (companyName?: string) => void;
 }
 
 function getSourceLabel(sourceUrl?: string): string {
@@ -60,6 +62,8 @@ const JobTileDropdown: React.FC<JobTileDropdownProps> = ({
   resumeDisplayName: uploadedResumeName,
   selectedResumeIds,
   resumeCatalogById,
+  onHideJob,
+  onHideCompany,
 }) => {
   const [open, setOpen] = useState(false);
   const [deepResearchPromptStatus, setDeepResearchPromptStatus] = useState('');
@@ -264,6 +268,18 @@ Be specific, direct, and high quality. Treat this as a real application I intend
     setOpen(false);
   };
 
+  const handleHideJob = () => {
+    onHideJob?.(job?.source_url);
+    setOpen(false);
+  };
+
+  const handleHideCompany = () => {
+    onHideCompany?.(job?.company_name);
+    setOpen(false);
+  };
+
+  const companyName = job?.company_name?.trim() || 'this company';
+
   return (
     <div className="job-tile-dropdown" ref={containerRef}>
       <button
@@ -300,6 +316,24 @@ Be specific, direct, and high quality. Treat this as a real application I intend
             {deepResearchJobStatus && (
               <span className="dropdown-item-status">{deepResearchJobStatus}</span>
             )}
+          </button>
+
+          <button
+            className="job-tile-dropdown-item"
+            role="menuitem"
+            onClick={handleHideJob}
+          >
+            <span className="dropdown-item-icon">🙈</span>
+            <span className="dropdown-item-label">Hide this job</span>
+          </button>
+
+          <button
+            className="job-tile-dropdown-item"
+            role="menuitem"
+            onClick={handleHideCompany}
+          >
+            <span className="dropdown-item-icon">🏢</span>
+            <span className="dropdown-item-label">Hide all jobs from {companyName}</span>
           </button>
         </div>
       )}
