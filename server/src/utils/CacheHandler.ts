@@ -7,6 +7,15 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import {
+  brotliCompressSync,
+  brotliDecompressSync,
+  constants as zlibConstants,
+} from 'node:zlib';
+
+const ENABLE_BACKUPS = false;
+const ENABLE_CACHE_COMPRESSION = true;
+const COMPRESSED_PREFIX = 'CBR1:';
 
 export type CacheParseFn<T> = (raw: string, sourcePath: string) => T | Promise<T>;
 
@@ -20,6 +29,8 @@ export class CacheHandler {
   private readonly cachePath: string;
   private readonly backup1Path: string;
   private readonly backup2Path: string;
+  private readonly enableBackups: boolean;
+  private readonly enableCompression: boolean;
   private readonly backupEveryNSaves: number;
 
   private saveCount = 0;
@@ -29,22 +40,38 @@ export class CacheHandler {
     this.cachePath = cachePath;
     this.backup1Path = options.backup1Path ?? `${cachePath}.backup1`;
     this.backup2Path = options.backup2Path ?? `${cachePath}.backup2`;
+    this.enableBackups = ENABLE_BACKUPS;
+    this.enableCompression = ENABLE_CACHE_COMPRESSION;
     this.backupEveryNSaves = Math.max(1, options.backupEveryNSaves ?? 10);
   }
 
-  public getPaths(): { cachePath: string; backup1Path: string; backup2Path: string } {
+  public getPaths(): {
+    cachePath: string;
+    backup1Path: string;
+    backup2Path: string;
+    enableBackups: boolean;
+    enableCompression: boolean;
+  } {
     return {
       cachePath: this.cachePath,
       backup1Path: this.backup1Path,
       backup2Path: this.backup2Path,
+      enableBackups: this.enableBackups,
+      enableCompression: this.enableCompression,
     };
   }
 
   public save(serializedData: string): Promise<void> {
     this.writeQueue = this.writeQueue.then(async () => {
+      const dataToPersist = this.encodeForStorage(serializedData);
+
       await fs.mkdir(path.dirname(this.cachePath), { recursive: true });
-      await fs.writeFile(this.cachePath, serializedData, 'utf8');
-      await fs.writeFile(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(serializedData, 'utf8')), 'utf8');
+      await fs.writeFile(this.cachePath, dataToPersist, 'utf8');
+      if (!this.enableBackups) {
+        return;
+      }
+
+      await fs.writeFile(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(dataToPersist, 'utf8')), 'utf8');
 
       this.saveCount += 1;
       if (this.saveCount % this.backupEveryNSaves === 0) {
@@ -56,9 +83,15 @@ export class CacheHandler {
   }
 
   public saveSync(serializedData: string): void {
+    const dataToPersist = this.encodeForStorage(serializedData);
+
     mkdirSync(path.dirname(this.cachePath), { recursive: true });
-    writeFileSync(this.cachePath, serializedData, 'utf8');
-    writeFileSync(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(serializedData, 'utf8')), 'utf8');
+    writeFileSync(this.cachePath, dataToPersist, 'utf8');
+    if (!this.enableBackups) {
+      return;
+    }
+
+    writeFileSync(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(dataToPersist, 'utf8')), 'utf8');
 
     this.saveCount += 1;
     if (this.saveCount % this.backupEveryNSaves === 0) {
@@ -67,7 +100,9 @@ export class CacheHandler {
   }
 
   public async loadWithFallback<T>(parse: CacheParseFn<T>): Promise<T> {
-    const candidates = [this.cachePath, this.backup1Path, this.backup2Path];
+    const candidates = this.enableBackups
+      ? [this.cachePath, this.backup1Path, this.backup2Path]
+      : [this.cachePath];
     const failures: string[] = [];
 
     for (const candidatePath of candidates) {
@@ -80,20 +115,26 @@ export class CacheHandler {
         continue;
       }
 
-      try {
-        const validSize = await this.validateSizeIfPresent(candidatePath, raw);
-        if (!validSize) {
-          failures.push(`${candidatePath}: size mismatch with sidecar file`);
+      if (this.enableBackups) {
+        try {
+          const validSize = await this.validateSizeIfPresent(candidatePath, raw);
+          if (!validSize) {
+            failures.push(`${candidatePath}: size mismatch with sidecar file`);
+            continue;
+          }
+        } catch (error) {
+          failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
           continue;
         }
-      } catch (error) {
-        failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
-        continue;
       }
 
       try {
-        const parsed = await parse(raw, candidatePath);
-        await this.healLegacyArtifacts(candidatePath, raw);
+        const decodedRaw = this.decodeFromStorage(raw);
+        const parsed = await parse(decodedRaw, candidatePath);
+        await this.compressOnReadIfNeeded(candidatePath, raw, decodedRaw);
+        if (this.enableBackups) {
+          await this.healLegacyArtifacts(candidatePath, raw);
+        }
         return parsed;
       } catch (error) {
         failures.push(`${candidatePath}: parse failed (${this.errorToMessage(error)})`);
@@ -105,7 +146,9 @@ export class CacheHandler {
   }
 
   public loadWithFallbackSync<T>(parse: (raw: string, sourcePath: string) => T): T {
-    const candidates = [this.cachePath, this.backup1Path, this.backup2Path];
+    const candidates = this.enableBackups
+      ? [this.cachePath, this.backup1Path, this.backup2Path]
+      : [this.cachePath];
     const failures: string[] = [];
 
     for (const candidatePath of candidates) {
@@ -118,20 +161,26 @@ export class CacheHandler {
         continue;
       }
 
-      try {
-        const validSize = this.validateSizeIfPresentSync(candidatePath, raw);
-        if (!validSize) {
-          failures.push(`${candidatePath}: size mismatch with sidecar file`);
+      if (this.enableBackups) {
+        try {
+          const validSize = this.validateSizeIfPresentSync(candidatePath, raw);
+          if (!validSize) {
+            failures.push(`${candidatePath}: size mismatch with sidecar file`);
+            continue;
+          }
+        } catch (error) {
+          failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
           continue;
         }
-      } catch (error) {
-        failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
-        continue;
       }
 
       try {
-        const parsed = parse(raw, candidatePath);
-        this.healLegacyArtifactsSync(candidatePath, raw);
+        const decodedRaw = this.decodeFromStorage(raw);
+        const parsed = parse(decodedRaw, candidatePath);
+        this.compressOnReadIfNeededSync(candidatePath, raw, decodedRaw);
+        if (this.enableBackups) {
+          this.healLegacyArtifactsSync(candidatePath, raw);
+        }
         return parsed;
       } catch (error) {
         failures.push(`${candidatePath}: parse failed (${this.errorToMessage(error)})`);
@@ -283,6 +332,56 @@ export class CacheHandler {
 
   private sizeFilePath(filePath: string): string {
     return `${filePath}_size`;
+  }
+
+  private async compressOnReadIfNeeded(candidatePath: string, storedRaw: string, decodedRaw: string): Promise<void> {
+    if (!this.enableCompression || storedRaw.startsWith(COMPRESSED_PREFIX)) {
+      return;
+    }
+
+    const compressedData = this.encodeForStorage(decodedRaw);
+    await fs.writeFile(candidatePath, compressedData, 'utf8');
+
+    if (this.enableBackups) {
+      await fs.writeFile(this.sizeFilePath(candidatePath), String(Buffer.byteLength(compressedData, 'utf8')), 'utf8');
+    }
+  }
+
+  private compressOnReadIfNeededSync(candidatePath: string, storedRaw: string, decodedRaw: string): void {
+    if (!this.enableCompression || storedRaw.startsWith(COMPRESSED_PREFIX)) {
+      return;
+    }
+
+    const compressedData = this.encodeForStorage(decodedRaw);
+    writeFileSync(candidatePath, compressedData, 'utf8');
+
+    if (this.enableBackups) {
+      writeFileSync(this.sizeFilePath(candidatePath), String(Buffer.byteLength(compressedData, 'utf8')), 'utf8');
+    }
+  }
+
+  private encodeForStorage(raw: string): string {
+    if (!this.enableCompression) {
+      return raw;
+    }
+
+    const compressed = brotliCompressSync(Buffer.from(raw, 'utf8'), {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: zlibConstants.BROTLI_MAX_QUALITY,
+      },
+    });
+    return `${COMPRESSED_PREFIX}${compressed.toString('base64')}`;
+  }
+
+  private decodeFromStorage(storedRaw: string): string {
+    if (!storedRaw.startsWith(COMPRESSED_PREFIX)) {
+      // Legacy files were stored as plain JSON text.
+      return storedRaw;
+    }
+
+    const payload = storedRaw.slice(COMPRESSED_PREFIX.length);
+    const compressedBuffer = Buffer.from(payload, 'base64');
+    return brotliDecompressSync(compressedBuffer).toString('utf8');
   }
 
   private errorToMessage(error: unknown): string {
