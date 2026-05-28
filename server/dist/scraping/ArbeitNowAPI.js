@@ -1,6 +1,6 @@
 import { fetchJson, normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 const ARBEITNOW_BASE_URL = 'https://www.arbeitnow.com/api/job-board-api?limit=100&page=1';
-const MAX_ARBEITNOW_PAGES = 200;
+const MAX_ARBEITNOW_PAGES = 400;
 function stripHtmlTags(value) {
     return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }

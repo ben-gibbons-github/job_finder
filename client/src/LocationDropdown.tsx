@@ -30,22 +30,29 @@ const LocationDropdown: React.FC<LocationDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
+  const skipNextSearchRef = useRef(false);
 
   useEffect(() => {
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current);
     }
 
-    if (query.trim().length < 2) {
-      setOptions([]);
-      setIsOpen(false);
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
       setIsLoading(false);
       return;
     }
 
+    if (query.trim().length < 2) {
+      setOptions([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
     debounceTimerRef.current = window.setTimeout(() => {
       const requestId = ++requestIdRef.current;
-      setIsLoading(true);
 
       socket.emit(
         'locations:search',
@@ -83,16 +90,25 @@ const LocationDropdown: React.FC<LocationDropdownProps> = ({
   };
 
   const handleSelectOption = (option: LocationOption) => {
+    skipNextSearchRef.current = true;
+
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    // Invalidate any in-flight response so stale callbacks are ignored.
+    requestIdRef.current += 1;
+
     setQuery(option.displayLabel);
     setIsOpen(false);
+    setIsLoading(false);
     setOptions([]);
     onSelectLocation(option);
   };
 
   const handleInputFocus = () => {
-    if (options.length > 0) {
-      setIsOpen(true);
-    }
+    setIsOpen(true);
   };
 
   const handleInputBlur = () => {
@@ -116,27 +132,39 @@ const LocationDropdown: React.FC<LocationDropdownProps> = ({
         {isLoading && <span className="loading-spinner">⟳</span>}
       </div>
 
-      {isOpen && options.length > 0 && (
-        <ul className="location-dropdown-menu">
-          {options.map((option) => (
-            <li
-              key={option.value}
-              onClick={() => handleSelectOption(option)}
-              className="location-option"
-            >
-              <div className="option-label">{option.displayLabel}</div>
-              {option.country && (
-                <div className="option-meta">
-                  {option.state ? `${option.state}, ` : ''}{option.country}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {isOpen && (
+        <div className="location-dropdown-panel">
+          {query.trim().length < 2 && !isLoading && (
+            <div className="location-state-message location-state-message-emphasis">Enter location</div>
+          )}
 
-      {isOpen && query.length >= 2 && options.length === 0 && !isLoading && (
-        <div className="location-no-results">No locations found</div>
+          {query.trim().length >= 2 && isLoading && (
+            <div className="location-state-message location-state-message-emphasis">Searching...</div>
+          )}
+
+          {query.trim().length >= 2 && !isLoading && options.length > 0 && (
+            <ul className="location-dropdown-menu">
+              {options.map((option) => (
+                <li
+                  key={option.value}
+                  onClick={() => handleSelectOption(option)}
+                  className="location-option"
+                >
+                  <div className="option-label">{option.displayLabel}</div>
+                  {option.country && (
+                    <div className="option-meta">
+                      {option.state ? `${option.state}, ` : ''}{option.country}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {query.trim().length >= 2 && !isLoading && options.length === 0 && (
+            <div className="location-state-message">No results</div>
+          )}
+        </div>
       )}
 
       <style>{`
@@ -176,21 +204,26 @@ const LocationDropdown: React.FC<LocationDropdownProps> = ({
           to { transform: rotate(360deg); }
         }
 
-        .location-dropdown-menu {
+        .location-dropdown-panel {
           position: absolute;
           top: 100%;
           left: 0;
           right: 0;
           margin: 4px 0 0 0;
-          padding: 0;
-          list-style: none;
           background: white;
           border: 1px solid #ddd;
           border-radius: 4px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          z-index: 1000;
+          overflow: hidden;
+        }
+
+        .location-dropdown-menu {
+          margin: 0;
+          padding: 0;
+          list-style: none;
           max-height: 300px;
           overflow-y: auto;
-          z-index: 1000;
         }
 
         .location-option {
@@ -214,19 +247,16 @@ const LocationDropdown: React.FC<LocationDropdownProps> = ({
           margin-top: 2px;
         }
 
-        .location-no-results {
-          position: absolute;
-          top: 100%;
-          left: 0;
-          right: 0;
-          margin: 4px 0 0 0;
+        .location-state-message {
           padding: 12px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 4px;
           text-align: center;
           color: #999;
           font-size: 14px;
+        }
+
+        .location-state-message-emphasis {
+          color: #444;
+          font-weight: 500;
         }
       `}</style>
     </div>

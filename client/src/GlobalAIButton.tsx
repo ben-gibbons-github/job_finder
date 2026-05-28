@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 interface AuditResult {
   auditScore: number
@@ -17,6 +17,8 @@ interface GlobalAIButtonProps {
   jobs: any[]
   auditResults: Record<string, AuditResult>
   impactResults: Record<string, ImpactResult>
+  showButton?: boolean
+  openSignal?: number
 }
 
 function formatMultilineBlock(value: string, fallback = 'N/A'): string {
@@ -24,7 +26,7 @@ function formatMultilineBlock(value: string, fallback = 'N/A'): string {
   return trimmed.length > 0 ? trimmed : fallback
 }
 
-const GlobalAIButton: React.FC<GlobalAIButtonProps> = ({ resumeText, jobs, auditResults, impactResults }) => {
+const GlobalAIButton: React.FC<GlobalAIButtonProps> = ({ resumeText, jobs, auditResults, impactResults, showButton = true, openSignal = 0 }) => {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false)
   const [fullText, setFullText] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
@@ -44,7 +46,7 @@ const GlobalAIButton: React.FC<GlobalAIButtonProps> = ({ resumeText, jobs, audit
       'Instructions:',
       '1) Read the resume carefully, including skills, domain experience, tools, and seniority.',
       '2) Compare the resume against ALL jobs listed below, using the job description + audit report + impact report for each job.',
-      '3) Rank the top 25 best-matching jobs and explain why each is a fit.',
+      '3) Rank the top 25 best-matching jobs and explain why each is a fit.  Prioritize jobs that optimize for quality of life, work / life balance, and mission alignment, as described in the audit and impact reports.',
       '4) For each top match, list skill gaps and concrete resume edits to improve odds.',
       '5) Flag risky jobs using audit red flags and weak mission fit using impact report.',
       '6) End with a practical application plan: apply now, customize resume, or skip.',
@@ -135,13 +137,23 @@ const GlobalAIButton: React.FC<GlobalAIButtonProps> = ({ resumeText, jobs, audit
     }
   }
 
+  useEffect(() => {
+    if (openSignal > 0) {
+      handleOpenAiComparisonCorpus()
+    }
+    // openSignal intentionally drives this side effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal])
+
   return (
     <>
-      <div className="app-top-actions">
-        <button type="button" className="open-corpus-btn" onClick={handleOpenAiComparisonCorpus}>
-          Open AI Resume-vs-Jobs Text
-        </button>
-      </div>
+      {showButton && (
+        <div className="app-top-actions">
+          <button type="button" className="open-corpus-btn" onClick={handleOpenAiComparisonCorpus}>
+            Open AI Resume-vs-Jobs Text
+          </button>
+        </div>
+      )}
 
       {isPopoverOpen && (
         <div

@@ -1,3 +1,5 @@
+import { ScrapedEmployer } from "./ScrapedEmployer.js";
+
 export interface ScrapedJob {
   name: string;
   company_name: string;
@@ -14,15 +16,7 @@ export interface ScrapedJob {
   audit_number: number;
   audit_text: string;
   tags: string[];
-  ai_summary: string;
-  ai_red_flag_summary: string;
-  ai_score: number;
-  ai_red_flag_score: number;
-
-  ai_impact_summary: string;
-  ai_impact_score: number;
-
-  employeeQualityOfLifeScore: number;
-  employeeQualityOfLifeSummary: string;
+  
+  scrapedEmployer?: ScrapedEmployer;
 }
 

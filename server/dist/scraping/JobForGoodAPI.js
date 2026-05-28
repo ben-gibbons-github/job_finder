@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const IDEALIST_JOBS_URL = 'https://www.idealist.org/en/jobs';
-const MAX_IDEALIST_PAGES = 100;
+const MAX_IDEALIST_PAGES = 250;
 function pageUrl(page) {
     const url = new URL(IDEALIST_JOBS_URL);
     if (page > 1) {

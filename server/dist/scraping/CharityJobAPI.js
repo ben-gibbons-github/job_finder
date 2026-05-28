@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const CHARITYJOB_URL = 'https://www.charityjob.co.uk/jobs';
-const MAX_CHARITYJOB_PAGES = 200;
+const MAX_CHARITYJOB_PAGES = 300;
 function pageUrl(page) {
     const url = new URL(CHARITYJOB_URL);
     if (page > 1) {

@@ -2,7 +2,7 @@ import type { ScrapedJob } from './ScrapedJob.js';
 import { normalizeJobsWithCoordinates, type NormalizedPortalJob } from './PortalIngestionUtils.js';
  
 const ALGOLIA_APP_ID = '6E1NSXNTTH';
-const ALGOLIA_API_KEY = 'd4ceccfb371537bb6eab4cebd7f33f98';
+const ALGOLIA_API_KEY = process.env.ESCAPE_THE_CITY_ALGOLIA_API_KEY ?? '';
 const ALGOLIA_INDEX = 'listings-live';
 const ESCAPE_BASE_URL = 'https://www.escapethecity.org';
 const HITS_PER_PAGE = 120;
@@ -34,6 +34,10 @@ function asStringArray(value: string | string[] | undefined): string[] {
 }
 
 async function fetchEscapeTheCityPage(page: number): Promise<EscapeTheCityResponse> {
+  if (!ALGOLIA_API_KEY) {
+    throw new Error('Missing ESCAPE_THE_CITY_ALGOLIA_API_KEY');
+  }
+
   const url = `https://${ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/${ALGOLIA_INDEX}/query`;
   const params = new URLSearchParams({
     query: '',

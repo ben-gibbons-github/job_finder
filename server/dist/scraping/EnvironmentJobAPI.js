@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const ENVIRONMENTJOB_URL = 'https://environmentjob.co.uk/';
-const MAX_ENVIRONMENTJOB_PAGES = 120;
+const MAX_ENVIRONMENTJOB_PAGES = 250;
 function pageUrl(page) {
     const url = new URL(ENVIRONMENTJOB_URL);
     if (page > 1) {

@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const IMPACT_OPPORTUNITY_URL = 'https://impactopportunity.org/jobs/';
-const MAX_IMPACT_OPPORTUNITY_PAGES = 80;
+const MAX_IMPACT_OPPORTUNITY_PAGES = 200;
 function pageUrl(page) {
     const url = new URL(IMPACT_OPPORTUNITY_URL);
     if (page > 1) {

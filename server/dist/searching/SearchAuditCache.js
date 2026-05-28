@@ -1,6 +1,9 @@
-import * as fs from 'fs';
 import * as path from 'path';
-const CACHE_FILE = path.join(process.cwd(), 'server', 'cache', 'auditcache.json');
+import { fileURLToPath } from 'url';
+import { CacheHandler } from '../utils/CacheHandler.js';
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const CACHE_FILE = path.resolve(moduleDir, '../../cache/auditcache.json');
+const cacheHandler = new CacheHandler(CACHE_FILE);
 class SearchAuditCache {
     cache = new Map();
     constructor() {
@@ -41,27 +44,25 @@ class SearchAuditCache {
     }
     loadFromFile() {
         try {
-            if (!fs.existsSync(CACHE_FILE)) {
-                return;
-            }
-            const data = fs.readFileSync(CACHE_FILE, 'utf-8');
-            const parsed = JSON.parse(data);
+            const parsed = cacheHandler.loadWithFallbackSync((raw) => {
+                const value = JSON.parse(raw);
+                if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                    throw new Error('Cache payload is not a valid object');
+                }
+                return value;
+            });
             this.cache = new Map(Object.entries(parsed));
             console.log(`[SearchAuditCache] Loaded ${this.cache.size} cached audits from ${CACHE_FILE}`);
         }
         catch (error) {
-            console.error(`[SearchAuditCache] Failed to load cache from ${CACHE_FILE}:`, error);
+            console.warn(`[SearchAuditCache] Failed to load cache from ${CACHE_FILE}:`, error);
             this.cache = new Map();
         }
     }
     saveToFile() {
         try {
-            const dir = path.dirname(CACHE_FILE);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
             const obj = Object.fromEntries(this.cache);
-            fs.writeFileSync(CACHE_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+            cacheHandler.saveSync(JSON.stringify(obj, null, 2));
         }
         catch (error) {
             console.error(`[SearchAuditCache] Failed to save cache to ${CACHE_FILE}:`, error);

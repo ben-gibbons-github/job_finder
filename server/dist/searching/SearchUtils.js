@@ -1,9 +1,7 @@
 import { calculateFreshnessScore } from './SearchFreshness.js';
 import { calculateLocationScore } from './SearchDistance.js';
-import { calculateImpactScore } from './SearchImpact.js';
-import { impactJobAI } from './SearchImpactAI.js';
-import { auditJob } from './SearchAudit.js';
 import { toSafeText, calculateResumeScore } from './SearchResumeMatch.js';
+import { getOrCreateEmployer } from '../scraping/ScrapedEmployerCache.js';
 /**
  * Calculate individual score components for a job
  *
@@ -16,18 +14,16 @@ import { toSafeText, calculateResumeScore } from './SearchResumeMatch.js';
  */
 export function calculateIndividualScores(job, resumeText, locationText, userLat, userLon, logFlags = {}) {
     // Resume score
-    const resumeScore = calculateResumeScore(job, resumeText, logFlags.resume === true);
+    const resumeScore = Math.min(calculateResumeScore(job, resumeText, logFlags.resume === true), 1.0);
     // Location score (based on distance and remote status)
     const locationScore = calculateLocationScore(userLat, userLon, job, locationText, logFlags.location === true);
-    // Warm any cached AI impact result without launching a new background call.
-    impactJobAI(job, logFlags.impact === true, false);
-    // Impact score (keyword scan + existing AI impact fields when available)
-    const impactScore = calculateImpactScore(job, logFlags.impact === true);
     // Freshness score
     const freshnessScore = calculateFreshnessScore(job.posted, logFlags.fresh === true);
-    // Audit score from background audit pipeline (normalized to 0-1)
-    const shouldLaunch = false;
-    const auditScore = Math.min(auditJob(job, logFlags.audit === true, shouldLaunch) / 100, 1.0);
+    // Get the employer related to this job:
+    const employer = getOrCreateEmployer(job);
+    const auditScore = Math.min(employer.ai_score / 100, 1.0);
+    const qualityOfLifeScore = employer.employeeQualityOfLifeScore ? Math.min(employer.employeeQualityOfLifeScore / 100, 1.0) : 0;
+    const impactScore = Math.min(employer.ai_impact_score / 100, 1.0);
     if (logFlags.audit === true || logFlags.searchMain === true) {
         console.log('Calculated scores for job:', {
             name: job.name,
@@ -37,6 +33,7 @@ export function calculateIndividualScores(job, resumeText, locationText, userLat
             locationScore,
             freshnessScore,
             auditScore,
+            qualityOfLifeScore,
         });
     }
     return {
@@ -45,6 +42,7 @@ export function calculateIndividualScores(job, resumeText, locationText, userLat
         location: locationScore,
         fresh: freshnessScore,
         audit: auditScore,
+        qualityOfLife: qualityOfLifeScore,
     };
 }
 /**
@@ -70,8 +68,6 @@ export function jobMatchesQuery(job, queryTerms, shouldLog = false) {
         toSafeText(job.source),
         toSafeText(job.source_url),
         toSafeText(job.posted),
-        toSafeText(job.ai_summary),
-        toSafeText(job.ai_red_flag_summary),
         job.tags.map((tag) => toSafeText(tag)).join(' '),
     ];
     const haystack = haystackParts.join(' ');

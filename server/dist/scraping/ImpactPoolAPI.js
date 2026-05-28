@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const IMPACTPOOL_URL = 'https://www.impactpool.org/search';
-const MAX_IMPACTPOOL_PAGES = 120;
+const MAX_IMPACTPOOL_PAGES = 250;
 function pageUrl(page) {
     const url = new URL(IMPACTPOOL_URL);
     if (page > 1) {

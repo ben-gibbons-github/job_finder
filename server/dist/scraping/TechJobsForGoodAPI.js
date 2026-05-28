@@ -1,13 +1,39 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const TECH_JOBS_FOR_GOOD_URL = 'https://www.techjobsforgood.com/jobs/';
-const MAX_TECH_JOBS_FOR_GOOD_PAGES = 50;
+const MAX_TECH_JOBS_FOR_GOOD_PAGES = 200;
 function pageUrl(page) {
     const url = new URL(TECH_JOBS_FOR_GOOD_URL);
     if (page > 1) {
         url.searchParams.set('page', String(page));
     }
     return url.toString();
+}
+function extractCompanyName(listingText) {
+    const normalized = listingText.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+        return 'Unknown Company';
+    }
+    const locationPatterns = [
+        /\bRemote\s*\([^)]*\)/,
+        /\bRemote\b/,
+        /\b[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)*,\s*[A-Z]{2}(?:\s*\([^)]+\))?\b/,
+        /\b[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)*\s*,\s*[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)*\b/,
+    ];
+    let locationIndex = -1;
+    for (const pattern of locationPatterns) {
+        const match = normalized.match(pattern);
+        if (match?.index !== undefined && match.index >= 0) {
+            locationIndex = match.index;
+            break;
+        }
+    }
+    const prefix = locationIndex > 0 ? normalized.slice(0, locationIndex).trim() : normalized;
+    const companyMatch = prefix.match(/([A-Z0-9&.,'()\-]+(?:\s+[A-Z0-9&.,'()\-]+){0,6})\s*$/);
+    if (companyMatch?.[1]) {
+        return companyMatch[1].trim();
+    }
+    return 'Unknown Company';
 }
 function parseTechJobsForGood(html) {
     const jobs = [];
@@ -24,11 +50,11 @@ function parseTechJobsForGood(html) {
         }
         const from = match.index ?? 0;
         const context = html.slice(Math.max(0, from - 400), from + 1200);
-        const companyMatch = context.match(/\]\s*([A-Z][A-Z0-9&.,'()\- ]{2,80})\s+(?:Remote|[A-Z][a-z])/);
         const locationMatch = context.match(/\b(Remote\s*\([^)]*\)|[A-Za-z .'-]+,\s*[A-Z]{2})\b/);
+        const company = extractCompanyName(title);
         jobs.push({
             title,
-            company: (companyMatch?.[1] || 'Tech Jobs For Good').trim(),
+            company,
             location: locationMatch?.[1]?.trim() || 'Unknown',
             remote: /\bremote\b/i.test(context) ? 'Remote' : 'Unknown',
             type: 'Unknown',

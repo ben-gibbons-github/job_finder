@@ -1,5 +1,6 @@
+import scrapedEmployerCache, { getOrCreateEmployer } from '../scraping/ScrapedEmployerCache.js';
 import { askGeminiWithSearch } from '../llms/AskLLM.js';
-import searchImpactAICache from './SearchImpactAICache.js';
+import console from 'node:console';
 const inFlightImpacts = new Set();
 const impactCompletionCallbacks = new Map();
 function fireImpactCallbacks(impactKey, result) {
@@ -13,6 +14,7 @@ function fireImpactCallbacks(impactKey, result) {
 const ENABLE_TEMP_LLM_CONCURRENCY_CAP = true;
 const TEMP_MAX_SIMULTANEOUS_LLM_IMPACT_CALLS = 3;
 const QUOTA_WARN_LOG_INTERVAL_MS = 15_000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 let activeLlmImpactCalls = 0;
 const pendingLlmImpactQueue = [];
 let lastQuotaWarnAt = 0;
@@ -166,12 +168,9 @@ function parseImpactRatings(responseText) {
     }
     return parseFromPlainTextFallback(responseText);
 }
-function getJobImpactKey(job) {
-    const sourceUrl = job.source_url?.trim();
-    if (sourceUrl) {
-        return sourceUrl;
-    }
-    return `${job.name}::${job.company_name}::${job.location}`;
+function getEmployerImpactKey(job) {
+    const employer = getOrCreateEmployer(job);
+    return String(employer.name ?? '').trim().toLowerCase();
 }
 function isFailedImpactText(impactSummary) {
     if (typeof impactSummary !== 'string') {
@@ -181,16 +180,18 @@ function isFailedImpactText(impactSummary) {
     return normalized === 'searchimpactai failed' || normalized.includes('searchimpactai failed');
 }
 function clearFailedImpact(job) {
-    searchImpactAICache.deleteCachedImpact(job);
-    job.ai_impact_score = 0;
-    job.ai_impact_summary = '';
+    const employer = getOrCreateEmployer(job);
+    employer.ai_impact_score = 0;
+    employer.ai_impact_summary = '';
+    scrapedEmployerCache.setCachedEmployer(employer);
 }
 function ensureImpactFields(job) {
-    if (typeof job.ai_impact_summary !== 'string') {
-        job.ai_impact_summary = '';
+    const employer = getOrCreateEmployer(job);
+    if (typeof employer.ai_impact_summary !== 'string') {
+        employer.ai_impact_summary = '';
     }
-    if (typeof job.ai_impact_score !== 'number' || !Number.isFinite(job.ai_impact_score)) {
-        job.ai_impact_score = 0;
+    if (typeof employer.ai_impact_score !== 'number' || !Number.isFinite(employer.ai_impact_score)) {
+        employer.ai_impact_score = 0;
     }
 }
 function runWithLlmConcurrencyCap(runImpact) {
@@ -220,34 +221,21 @@ function releaseLlmConcurrencySlot() {
 }
 export function impactJobAI(job, shouldLog = false, shouldLaunch = false) {
     ensureImpactFields(job);
-    const impactKey = getJobImpactKey(job);
-    if (job.ai_impact_summary.trim().length > 0) {
-        if (isFailedImpactText(job.ai_impact_summary)) {
+    const impactKey = getEmployerImpactKey(job);
+    const employer = getOrCreateEmployer(job);
+    if (employer.ai_impact_summary.trim().length > 0) {
+        if (isFailedImpactText(employer.ai_impact_summary)) {
             clearFailedImpact(job);
         }
         else {
-            return clampToPercent(job.ai_impact_score);
-        }
-    }
-    const cached = searchImpactAICache.getCachedImpact(job);
-    if (cached) {
-        if (isFailedImpactText(cached.impactSummary)) {
-            if (shouldLog) {
-                console.log(`[SearchImpactAI] Cached failure found for ${job.name}; deleting and retrying.`);
-            }
-            clearFailedImpact(job);
-        }
-        else {
-            job.ai_impact_score = cached.impactScore;
-            job.ai_impact_summary = cached.impactSummary;
-            return clampToPercent(job.ai_impact_score);
+            return clampToPercent(employer.ai_impact_score);
         }
     }
     if (inFlightImpacts.has(impactKey)) {
-        return clampToPercent(job.ai_impact_score);
+        return clampToPercent(employer.ai_impact_score);
     }
     if (!shouldLaunch) {
-        return clampToPercent(job.ai_impact_score);
+        return clampToPercent(employer.ai_impact_score);
     }
     const question = [
         'Perform due diligence on this company and estimate REAL-WORLD POSITIVE IMPACT.',
@@ -288,7 +276,9 @@ export function impactJobAI(job, shouldLog = false, shouldLaunch = false) {
         'Job description:',
         `${job.description}`,
     ].join('\n');
-    console.log('Initiating AI impact analysis for job:', job.name, 'with question:', question);
+    if (!IS_PRODUCTION) {
+        console.log('Initiating AI impact analysis for job:', job.name, 'with question:', question);
+    }
     inFlightImpacts.add(impactKey);
     runWithLlmConcurrencyCap(() => {
         void (async () => {
@@ -300,14 +290,13 @@ export function impactJobAI(job, shouldLog = false, shouldLaunch = false) {
                 if (!parsed) {
                     throw new Error(`SearchImpactAI failed to parse response for job: ${job.name}`);
                 }
-                console.log("result.answer", result.answer);
-                console.log('AI impact analysis completed for job:', job.name, 'result:', parsed);
-                job.ai_impact_score = parsed.impactScore;
-                job.ai_impact_summary = parsed.impactSummary;
-                searchImpactAICache.setCachedImpact(job, {
-                    impactScore: parsed.impactScore,
-                    impactSummary: parsed.impactSummary,
-                });
+                if (!IS_PRODUCTION) {
+                    console.log('result.answer', result.answer);
+                    console.log('AI impact analysis completed for job:', job.name, 'result:', parsed);
+                }
+                employer.ai_impact_score = parsed.impactScore;
+                employer.ai_impact_summary = parsed.impactSummary;
+                scrapedEmployerCache.setCachedEmployer(employer);
                 fireImpactCallbacks(impactKey, {
                     impactScore: parsed.impactScore,
                     impactSummary: parsed.impactSummary,
@@ -315,8 +304,8 @@ export function impactJobAI(job, shouldLog = false, shouldLaunch = false) {
             }
             catch (error) {
                 fireImpactCallbacks(impactKey, {
-                    impactScore: clampToPercent(job.ai_impact_score),
-                    impactSummary: job.ai_impact_summary,
+                    impactScore: clampToPercent(employer.ai_impact_score),
+                    impactSummary: employer.ai_impact_summary,
                     error: String(error),
                 });
                 if (shouldLog) {
@@ -338,36 +327,25 @@ export function impactJobAI(job, shouldLog = false, shouldLaunch = false) {
             }
         })();
     });
-    return clampToPercent(job.ai_impact_score);
+    return clampToPercent(employer.ai_impact_score);
 }
 export function impactJobAIAsync(job, shouldLog = false) {
     ensureImpactFields(job);
-    const impactKey = getJobImpactKey(job);
-    if (job.ai_impact_summary.trim().length > 0) {
-        if (isFailedImpactText(job.ai_impact_summary)) {
+    const impactKey = getEmployerImpactKey(job);
+    const employer = getOrCreateEmployer(job);
+    if (employer.ai_impact_summary.trim().length > 0) {
+        console.log(`[SearchImpactAI] Returning existing impact for employer "${employer.name}" with score ${employer.ai_impact_score}`);
+        if (isFailedImpactText(employer.ai_impact_summary)) {
             clearFailedImpact(job);
         }
         else {
             return Promise.resolve({
-                impactScore: clampToPercent(job.ai_impact_score),
-                impactSummary: job.ai_impact_summary,
+                impactScore: clampToPercent(employer.ai_impact_score),
+                impactSummary: employer.ai_impact_summary,
             });
         }
     }
-    const cached = searchImpactAICache.getCachedImpact(job);
-    if (cached) {
-        if (isFailedImpactText(cached.impactSummary)) {
-            clearFailedImpact(job);
-        }
-        else {
-            job.ai_impact_score = cached.impactScore;
-            job.ai_impact_summary = cached.impactSummary;
-            return Promise.resolve({
-                impactScore: cached.impactScore,
-                impactSummary: cached.impactSummary,
-            });
-        }
-    }
+    console.log(`[SearchImpactAI] No existing impact found for employer "${employer.name}". Initiating new impact analysis.`);
     return new Promise((resolve) => {
         const existing = impactCompletionCallbacks.get(impactKey) ?? [];
         existing.push(resolve);

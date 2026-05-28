@@ -1,6 +1,6 @@
 import type { ScrapedJob } from '../scraping/ScrapedJob.js'
+import scrapedEmployerCache, { getOrCreateEmployer } from '../scraping/ScrapedEmployerCache.js'
 import { askGeminiWithSearch } from '../llms/AskLLM.js'
-import searchQualityOfLifeCache from './SearchQualityOfLifeCache.js'
 
 const inFlightQualityOfLife = new Set<string>()
 
@@ -23,6 +23,7 @@ function fireQualityOfLifeCallbacks(jobKey: string, result: QualityOfLifeResult)
 const ENABLE_TEMP_LLM_CONCURRENCY_CAP = true
 const TEMP_MAX_SIMULTANEOUS_LLM_QOL_CALLS = 3
 const QUOTA_WARN_LOG_INTERVAL_MS = 15_000
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
 
 let activeLlmQolCalls = 0
 const pendingLlmQolQueue: Array<() => void> = []
@@ -79,12 +80,9 @@ function parseQualityOfLifeRatings(
   }
 }
 
-function getJobQualityOfLifeKey(job: ScrapedJob): string {
-  const sourceUrl = job.source_url?.trim()
-  if (sourceUrl) {
-    return sourceUrl
-  }
-  return `${job.name}::${job.company_name}::${job.location}`
+function getEmployerQualityOfLifeKey(job: ScrapedJob): string {
+  const employer = getOrCreateEmployer(job)
+  return String(employer.name ?? '').trim().toLowerCase()
 }
 
 function isFailedQualityOfLifeText(summary: string | undefined | null): boolean {
@@ -97,18 +95,20 @@ function isFailedQualityOfLifeText(summary: string | undefined | null): boolean 
 }
 
 function ensureQualityOfLifeFields(job: ScrapedJob): void {
-  if (typeof job.employeeQualityOfLifeSummary !== 'string') {
-    job.employeeQualityOfLifeSummary = ''
+  const employer = getOrCreateEmployer(job)
+  if (typeof employer.employeeQualityOfLifeSummary !== 'string') {
+    employer.employeeQualityOfLifeSummary = ''
   }
-  if (typeof job.employeeQualityOfLifeScore !== 'number' || !Number.isFinite(job.employeeQualityOfLifeScore)) {
-    job.employeeQualityOfLifeScore = 0
+  if (typeof employer.employeeQualityOfLifeScore !== 'number' || !Number.isFinite(employer.employeeQualityOfLifeScore)) {
+    employer.employeeQualityOfLifeScore = 0
   }
 }
 
 function clearFailedQualityOfLife(job: ScrapedJob): void {
-  searchQualityOfLifeCache.deleteCachedQualityOfLife(job)
-  job.employeeQualityOfLifeScore = 0
-  job.employeeQualityOfLifeSummary = ''
+  const employer = getOrCreateEmployer(job)
+  employer.employeeQualityOfLifeScore = 0
+  employer.employeeQualityOfLifeSummary = ''
+  scrapedEmployerCache.setCachedEmployer(employer)
 }
 
 function runWithLlmConcurrencyCap(runQol: () => void): void {
@@ -144,50 +144,34 @@ function releaseLlmConcurrencySlot(): void {
 
 export function qualityOfLifeJob(job: ScrapedJob, shouldLog = false, shouldLaunch = false): number {
   ensureQualityOfLifeFields(job)
-  const jobKey = getJobQualityOfLifeKey(job)
+  const jobKey = getEmployerQualityOfLifeKey(job)
+  const employer = getOrCreateEmployer(job)
 
-  shouldLog = true
+  shouldLog = shouldLog && !IS_PRODUCTION
 
-  if (isFailedQualityOfLifeText(job.employeeQualityOfLifeSummary)) {
+  if (isFailedQualityOfLifeText(employer.employeeQualityOfLifeSummary)) {
     if (shouldLog) {
       console.log(`[SearchQualityOfLife] Existing failed QoL result found for ${job.name}; deleting and retrying.`)
     }
     clearFailedQualityOfLife(job)
   }
 
-  if (job.employeeQualityOfLifeScore > 0 && job.employeeQualityOfLifeSummary.trim().length > 0) {
+  if (employer.employeeQualityOfLifeScore > 0 && employer.employeeQualityOfLifeSummary.trim().length > 0) {
     if (shouldLog) {
-      console.log(`[SearchQualityOfLife] Existing QoL data found for ${job.name}; skipping LLM call.`)
+      console.log(`[SearchQualityOfLife] Existing QoL data found for employer ${employer.name}; skipping LLM call.`)
     }
-    return clampToPercent(job.employeeQualityOfLifeScore)
-  }
-
-  const cached = searchQualityOfLifeCache.getCachedQualityOfLife(job)
-  if (cached) {
-    if (isFailedQualityOfLifeText(cached.employeeQualityOfLifeSummary)) {
-      if (shouldLog) {
-        console.log(`[SearchQualityOfLife] Cached failure found for ${job.name}; deleting and retrying.`)
-      }
-      clearFailedQualityOfLife(job)
-    } else {
-      if (shouldLog) {
-        console.log(`[SearchQualityOfLife] Cache hit for ${job.name}; using cached QoL result.`)
-      }
-      job.employeeQualityOfLifeScore = cached.employeeQualityOfLifeScore
-      job.employeeQualityOfLifeSummary = cached.employeeQualityOfLifeSummary
-      return clampToPercent(job.employeeQualityOfLifeScore)
-    }
+    return clampToPercent(employer.employeeQualityOfLifeScore)
   }
 
   if (inFlightQualityOfLife.has(jobKey)) {
     if (shouldLog) {
-      console.log(`[SearchQualityOfLife] QoL analysis already in flight for ${job.name}; skipping duplicate launch.`)
+      console.log(`[SearchQualityOfLife] QoL analysis already in flight for employer ${employer.name}; skipping duplicate launch.`)
     }
-    return clampToPercent(job.employeeQualityOfLifeScore)
+    return clampToPercent(employer.employeeQualityOfLifeScore)
   }
 
   if (!shouldLaunch) {
-    return clampToPercent(job.employeeQualityOfLifeScore)
+    return clampToPercent(employer.employeeQualityOfLifeScore)
   }
 
   const question = [
@@ -244,16 +228,16 @@ export function qualityOfLifeJob(job: ScrapedJob, shouldLog = false, shouldLaunc
 
         const parsed = parseQualityOfLifeRatings(result.answer)
         if (!parsed) {
-          throw new Error(`SearchQualityOfLife failed to parse Gemini response for job: ${job.name} ${result.answer}`)
+          throw new Error(
+            IS_PRODUCTION
+              ? `SearchQualityOfLife failed to parse Gemini response for job: ${job.name}`
+              : `SearchQualityOfLife failed to parse Gemini response for job: ${job.name} ${result.answer}`
+          )
         }
 
-        job.employeeQualityOfLifeScore = parsed.employeeQualityOfLifeScore
-        job.employeeQualityOfLifeSummary = parsed.employeeQualityOfLifeSummary
-
-        searchQualityOfLifeCache.setCachedQualityOfLife(job, {
-          employeeQualityOfLifeScore: parsed.employeeQualityOfLifeScore,
-          employeeQualityOfLifeSummary: parsed.employeeQualityOfLifeSummary,
-        })
+        employer.employeeQualityOfLifeScore = parsed.employeeQualityOfLifeScore
+        employer.employeeQualityOfLifeSummary = parsed.employeeQualityOfLifeSummary
+        scrapedEmployerCache.setCachedEmployer(employer)
 
         fireQualityOfLifeCallbacks(jobKey, {
           employeeQualityOfLifeScore: parsed.employeeQualityOfLifeScore,
@@ -291,36 +275,23 @@ export function qualityOfLifeJob(job: ScrapedJob, shouldLog = false, shouldLaunc
     })()
   })
 
-  return clampToPercent(job.employeeQualityOfLifeScore)
+  return clampToPercent(employer.employeeQualityOfLifeScore)
 }
 
 export function qualityOfLifeJobAsync(job: ScrapedJob, shouldLog = false): Promise<QualityOfLifeResult> {
   ensureQualityOfLifeFields(job)
-  const jobKey = getJobQualityOfLifeKey(job)
+  const jobKey = getEmployerQualityOfLifeKey(job)
+  const employer = getOrCreateEmployer(job)
 
-  if (isFailedQualityOfLifeText(job.employeeQualityOfLifeSummary)) {
+  if (isFailedQualityOfLifeText(employer.employeeQualityOfLifeSummary)) {
     clearFailedQualityOfLife(job)
   }
 
-  if (job.employeeQualityOfLifeScore > 0 && job.employeeQualityOfLifeSummary.trim().length > 0) {
+  if (employer.employeeQualityOfLifeScore > 0 && employer.employeeQualityOfLifeSummary.trim().length > 0) {
     return Promise.resolve({
-      employeeQualityOfLifeScore: clampToPercent(job.employeeQualityOfLifeScore),
-      employeeQualityOfLifeSummary: job.employeeQualityOfLifeSummary,
+      employeeQualityOfLifeScore: clampToPercent(employer.employeeQualityOfLifeScore),
+      employeeQualityOfLifeSummary: employer.employeeQualityOfLifeSummary,
     })
-  }
-
-  const cached = searchQualityOfLifeCache.getCachedQualityOfLife(job)
-  if (cached) {
-    if (isFailedQualityOfLifeText(cached.employeeQualityOfLifeSummary)) {
-      if (shouldLog) {
-        console.log(`[SearchQualityOfLife] Cached failure found for ${job.name}; deleting and retrying.`)
-      }
-      clearFailedQualityOfLife(job)
-    } else {
-      job.employeeQualityOfLifeScore = cached.employeeQualityOfLifeScore
-      job.employeeQualityOfLifeSummary = cached.employeeQualityOfLifeSummary
-      return Promise.resolve(cached)
-    }
   }
 
   return new Promise((resolve) => {

@@ -1,0 +1,13 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Vitest coverage output
+coverage/

@@ -1,13 +1,29 @@
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import type { ScrapedJob } from './ScrapedJob.js';
+import { CacheHandler } from '../utils/CacheHandler.js';
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const CACHE_DIR = path.resolve(process.cwd(), 'cache');
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const CACHE_DIR = path.resolve(moduleDir, '../../cache');
 
 function cacheFilePath(componentName: string): string {
   return path.join(CACHE_DIR, `${componentName}.json`);
+}
+
+const cacheHandlers = new Map<string, CacheHandler>();
+
+function getCacheHandler(componentName: string): CacheHandler {
+  const existing = cacheHandlers.get(componentName);
+  if (existing) {
+    return existing;
+  }
+
+  const created = new CacheHandler(cacheFilePath(componentName));
+  cacheHandlers.set(componentName, created);
+  return created;
 }
 
 export async function ensureCacheDir(): Promise<void> {
@@ -16,6 +32,7 @@ export async function ensureCacheDir(): Promise<void> {
 
 export async function readFreshCache(componentName: string): Promise<ScrapedJob[] | null> {
   const filePath = cacheFilePath(componentName);
+  const cacheHandler = getCacheHandler(componentName);
 
   try {
     const stat = await fs.stat(filePath);
@@ -25,8 +42,7 @@ export async function readFreshCache(componentName: string): Promise<ScrapedJob[
       return null;
     }
 
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw) as unknown);
 
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return null;
@@ -39,11 +55,10 @@ export async function readFreshCache(componentName: string): Promise<ScrapedJob[
 }
 
 export async function readAnyCache(componentName: string): Promise<ScrapedJob[] | null> {
-  const filePath = cacheFilePath(componentName);
+  const cacheHandler = getCacheHandler(componentName);
 
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw) as unknown);
 
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return null;
@@ -56,6 +71,6 @@ export async function readAnyCache(componentName: string): Promise<ScrapedJob[] 
 }
 
 export async function writeCache(componentName: string, jobs: ScrapedJob[]): Promise<void> {
-  const filePath = cacheFilePath(componentName);
-  await fs.writeFile(filePath, JSON.stringify(jobs, null, 2), 'utf8');
+  const cacheHandler = getCacheHandler(componentName);
+  await cacheHandler.save(JSON.stringify(jobs, null, 2));
 }

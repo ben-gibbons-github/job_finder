@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import JobTileDropdown from './JobTileDropdown';
-import GenericPopover from './GenericPopover';
+import JobTileStatsPopover from './JobTileStatsPopover';
 
 interface JobScores {
   resume: number;
@@ -9,6 +9,26 @@ interface JobScores {
   fresh: number;
   audit: number;
   qualityOfLife: number;
+}
+
+interface JobAiPayload {
+  audit?: {
+    hasData?: boolean;
+    score?: number;
+    redFlagScore?: number;
+    summary?: string;
+    redFlagSummary?: string;
+  };
+  impact?: {
+    hasData?: boolean;
+    score?: number;
+    summary?: string;
+  };
+  qualityOfLife?: {
+    hasData?: boolean;
+    score?: number;
+    summary?: string;
+  };
 }
 
 interface RankedJobWrapper {
@@ -24,6 +44,7 @@ interface RankedJobWrapper {
   };
   scores?: JobScores;
   totalScore?: number;
+  aiPayload?: JobAiPayload;
 }
 
 interface ResumeCatalogEntry {
@@ -75,6 +96,28 @@ const formatScore = (score: number): string => {
   return (score * 100).toFixed(1);
 };
 
+const getPreview = (value: string, maxLength = 160): string => {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
+};
+
+const getSourceHost = (sourceUrl?: string): string => {
+  if (!sourceUrl) {
+    return 'Source unavailable';
+  }
+  try {
+    return new URL(sourceUrl).hostname.replace(/^www\./, '');
+  } catch {
+    return 'External posting';
+  }
+};
+
 type ScoreBand = 'blue' | 'green' | 'yellow' | 'red';
 
 const getScoreBand = (score?: number): ScoreBand => {
@@ -110,6 +153,10 @@ const JobTile: React.FC<JobTileProps> = ({
   const job = wrapper?.job;
   const scores = wrapper?.scores;
   const totalScore = wrapper?.totalScore;
+  const aiPayload = wrapper?.aiPayload;
+  const payloadAuditHasData = Boolean(aiPayload?.audit?.hasData);
+  const payloadImpactHasData = Boolean(aiPayload?.impact?.hasData);
+  const payloadQualityOfLifeHasData = Boolean(aiPayload?.qualityOfLife?.hasData);
 
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditScore, setAuditScore] = useState<number | null>(null);
@@ -119,8 +166,14 @@ const JobTile: React.FC<JobTileProps> = ({
 
   // auditResultOverride comes from the App-level job:audit:result listener;
   // local ack state takes precedence when this tile triggered the audit.
-  const resolvedAuditScore = auditScore ?? (auditResultOverride?.auditScore ?? null);
-  const resolvedAuditText = auditText ?? (auditResultOverride?.auditText ?? null);
+  const resolvedAuditScore =
+    auditScore ??
+    auditResultOverride?.auditScore ??
+    (payloadAuditHasData ? (aiPayload?.audit?.score ?? null) : null);
+  const resolvedAuditText =
+    auditText ??
+    auditResultOverride?.auditText ??
+    (payloadAuditHasData ? (String(aiPayload?.audit?.summary ?? '').trim() || null) : null);
   const resolvedAuditError = auditError ?? (auditResultOverride?.error ?? null);
 
   const handleRunAudit = () => {
@@ -142,12 +195,18 @@ const JobTile: React.FC<JobTileProps> = ({
   };
 
   const displayedAuditScore = resolvedAuditScore !== null ? resolvedAuditScore / 100 : scores?.audit;
-  const displayedImpactScore = impactResultOverride ? impactResultOverride.ai_impact_score / 100 : scores?.impact;
+  const displayedImpactScore = impactResultOverride
+    ? impactResultOverride.ai_impact_score / 100
+    : payloadImpactHasData && Number.isFinite(Number(aiPayload?.impact?.score))
+      ? Number(aiPayload?.impact?.score) / 100
+      : scores?.impact;
   const displayedQualityOfLifeScore = qualityOfLifeResultOverride
     ? qualityOfLifeResultOverride.employeeQualityOfLifeScore / 100
-    : scores?.qualityOfLife;
-  const resolvedImpactSummary = impactResultOverride?.ai_impact_summary?.trim() || '';
-  const resolvedQualityOfLifeSummary = qualityOfLifeResultOverride?.employeeQualityOfLifeSummary?.trim() || '';
+    : payloadQualityOfLifeHasData && Number.isFinite(Number(aiPayload?.qualityOfLife?.score))
+      ? Number(aiPayload?.qualityOfLife?.score) / 100
+      : scores?.qualityOfLife;
+  const resolvedImpactSummary = (impactResultOverride?.ai_impact_summary ?? aiPayload?.impact?.summary ?? '').trim();
+  const resolvedQualityOfLifeSummary = (qualityOfLifeResultOverride?.employeeQualityOfLifeSummary ?? aiPayload?.qualityOfLife?.summary ?? '').trim();
   const normalizedAuditText = String(resolvedAuditText ?? '').trim().toLowerCase();
   const normalizedImpactSummary = resolvedImpactSummary.trim().toLowerCase();
   const normalizedQualityOfLifeSummary = resolvedQualityOfLifeSummary.trim().toLowerCase();
@@ -160,28 +219,49 @@ const JobTile: React.FC<JobTileProps> = ({
     resolvedAuditScore !== null ||
     normalizedAuditText.length > 0
   );
-  const hasResolvedImpact = !impactFailed && Boolean(impactResultOverride) && (
-    normalizedImpactSummary.length > 0 || Number.isFinite(Number(impactResultOverride?.ai_impact_score))
+  const hasResolvedImpact = !impactFailed && (
+    Boolean(impactResultOverride) ||
+    payloadImpactHasData
+  ) && (
+    normalizedImpactSummary.length > 0 ||
+    Number.isFinite(Number(impactResultOverride?.ai_impact_score)) ||
+    (payloadImpactHasData && Number.isFinite(Number(aiPayload?.impact?.score)))
   );
   const isAuditComplete = hasResolvedAudit && hasResolvedImpact;
   const auditNeedsRetry = (auditFailed || impactFailed) && !auditLoading;
-  const auditButtonState = auditLoading
-    ? 'running'
-    : isAuditComplete
-      ? 'complete'
-      : auditNeedsRetry
-        ? 'retry'
-        : 'ready';
 
-  const hasAiImpact = !impactFailed && Boolean(impactResultOverride && resolvedImpactSummary.length > 0);
-  const hasAiQualityOfLife = !qualityOfLifeFailed && Boolean(qualityOfLifeResultOverride && resolvedQualityOfLifeSummary.length > 0);
-  const hasAiAudit = !auditFailed && Boolean(resolvedAuditText && resolvedAuditText.trim().length > 0);
+  const hasAiImpact = !impactFailed && Boolean(
+    resolvedImpactSummary.length > 0 || payloadImpactHasData || impactResultOverride
+  );
+  const hasAiQualityOfLife = !qualityOfLifeFailed && Boolean(
+    resolvedQualityOfLifeSummary.length > 0 || payloadQualityOfLifeHasData || qualityOfLifeResultOverride
+  );
+  const hasAiAudit = !auditFailed && Boolean(
+    (resolvedAuditText && resolvedAuditText.trim().length > 0) || payloadAuditHasData
+  );
+
+  const resumeTooltip = resumeText?.trim().length
+    ? `Resume relevance from uploaded resume text: ${getPreview(resumeText, 140)}`
+    : 'Resume score is text similarity based. Upload a resume to improve this signal.';
+  const impactTooltip = resolvedImpactSummary
+    ? `Impact summary: ${getPreview(resolvedImpactSummary, 170)}`
+    : 'No impact report available yet. Run an audit to populate impact details.';
+  const qualityOfLifeTooltip = resolvedQualityOfLifeSummary
+    ? `Quality-of-life summary: ${getPreview(resolvedQualityOfLifeSummary, 170)}`
+    : 'No quality-of-life report available yet. Run an audit to populate QoL details.';
+  const locationTooltip = `Job location: ${String(job?.location ?? 'Unknown')}. Location score reflects alignment with your selected location.`;
+  const freshTooltip = 'Fresh score reflects how recent this posting appears in the source feeds.';
+  const auditTooltip = resolvedAuditText
+    ? `Audit details: ${getPreview(resolvedAuditText, 170)}`
+    : 'No audit report available yet. Run audit to generate score rationale.';
+
   const resumeBand = getScoreBand(scores?.resume);
   const impactBand = getScoreBand(displayedImpactScore);
   const qualityOfLifeBand = getScoreBand(displayedQualityOfLifeScore);
   const locationBand = getScoreBand(scores?.location);
   const freshBand = getScoreBand(scores?.fresh);
   const auditBand = getScoreBand(displayedAuditScore);
+  const sourceHost = getSourceHost(job?.source_url);
 
   const getFullAuditText = (): string => {
     if (!resolvedAuditText) {
@@ -203,6 +283,17 @@ const JobTile: React.FC<JobTileProps> = ({
     window.open(job.source_url, '_blank', 'noopener,noreferrer');
   };
 
+  const openStatsPopover = () => {
+    setIsStatsPopoverOpen(true);
+  };
+
+  const handleScoreBubbleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openStatsPopover();
+    }
+  };
+
   return (
     <div className="job-tile">
       <div className="job-tile-fixed-layout">
@@ -215,6 +306,9 @@ const JobTile: React.FC<JobTileProps> = ({
             resumeDisplayName={resumeDisplayName}
             selectedResumeIds={selectedResumeIds}
             resumeCatalogById={resumeCatalogById}
+            onRunAudit={handleRunAudit}
+            canRunAudit={Boolean(onAuditRequest) && !auditLoading && !isAuditComplete}
+            auditMenuLabel={auditLoading ? 'Running audit…' : isAuditComplete ? 'Audit complete' : auditNeedsRetry ? 'Retry audit' : 'Run audit'}
             onHideJob={onHideJob}
             onHideCompany={onHideCompany}
           />
@@ -240,12 +334,27 @@ const JobTile: React.FC<JobTileProps> = ({
             </div>
 
             <div className="score-bubbles-row">
-              <div className={`score-bubble score-bubble--${resumeBand}`}>
+              <div
+                className={`score-bubble score-bubble--${resumeBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">Resume</span>
                 <span className="score-bubble-value">{formatScore(scores.resume)}%</span>
+                <span className="score-bubble-tooltip">{resumeTooltip}</span>
               </div>
 
-              <div className={`score-bubble score-bubble--impact score-bubble--${impactBand}`}>
+              <div
+                className={`score-bubble score-bubble--impact score-bubble--${impactBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">
                   Impact
                   {(hasAiImpact || impactFailed) && (
@@ -256,9 +365,17 @@ const JobTile: React.FC<JobTileProps> = ({
                   )}
                 </span>
                 <span className="score-bubble-value">{displayedImpactScore !== undefined ? formatScore(displayedImpactScore) + '%' : '—'}</span>
+                <span className="score-bubble-tooltip">{impactTooltip}</span>
               </div>
 
-              <div className={`score-bubble score-bubble--${qualityOfLifeBand}`}>
+              <div
+                className={`score-bubble score-bubble--${qualityOfLifeBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">
                   QoL
                   {(hasAiQualityOfLife || qualityOfLifeFailed) && (
@@ -269,19 +386,43 @@ const JobTile: React.FC<JobTileProps> = ({
                   )}
                 </span>
                 <span className="score-bubble-value">{displayedQualityOfLifeScore !== undefined ? formatScore(displayedQualityOfLifeScore) + '%' : '—'}</span>
+                <span className="score-bubble-tooltip">{qualityOfLifeTooltip}</span>
               </div>
 
-              <div className={`score-bubble score-bubble--${locationBand}`}>
+              <div
+                className={`score-bubble score-bubble--${locationBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">Location</span>
                 <span className="score-bubble-value">{formatScore(scores.location)}%</span>
+                <span className="score-bubble-tooltip">{locationTooltip}</span>
               </div>
 
-              <div className={`score-bubble score-bubble--${freshBand}`}>
+              <div
+                className={`score-bubble score-bubble--${freshBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">Fresh</span>
                 <span className="score-bubble-value">{formatScore(scores.fresh)}%</span>
+                <span className="score-bubble-tooltip">{freshTooltip}</span>
               </div>
 
-              <div className={`score-bubble score-bubble--audit score-bubble--${auditBand}`}>
+              <div
+                className={`score-bubble score-bubble--audit score-bubble--${auditBand}`}
+                role="button"
+                tabIndex={0}
+                onClick={openStatsPopover}
+                onKeyDown={handleScoreBubbleKeyDown}
+                aria-label="Open job stats"
+              >
                 <span className="score-bubble-label">
                   Audit
                   {(hasAiAudit || auditFailed) && (
@@ -294,126 +435,63 @@ const JobTile: React.FC<JobTileProps> = ({
                 <span className="score-bubble-value">
                   {auditLoading ? '⏳ Running…' : displayedAuditScore !== undefined ? formatScore(displayedAuditScore) + '%' : '—'}
                 </span>
+                <span className="score-bubble-tooltip">{auditTooltip}</span>
               </div>
             </div>
 
-            <div className="job-tile-actions-row">
-              <button
-                className={`audit-run-btn audit-run-btn--${auditButtonState}`}
-                onClick={handleRunAudit}
-                disabled={!onAuditRequest || auditLoading || isAuditComplete}
-                title="Run AI audit for this job"
-              >
-                {auditLoading ? 'Running audit…' : isAuditComplete ? 'Audit complete' : auditNeedsRetry ? 'Retry audit' : 'Run audit'}
-              </button>
-
+            <div className="job-tile-actions-row job-tile-actions-row--compact">
+              <span className="job-link-source">{sourceHost}</span>
               <button
                 type="button"
-                className="job-link-btn job-link-btn--view"
+                className="job-link-btn job-link-btn--view job-link-btn--compact"
                 onClick={openSourceUrl}
                 disabled={!job?.source_url}
                 title={job?.source_url ? 'Open source job post' : 'No job URL available'}
               >
-                View job
-              </button>
-
-              <button
-                type="button"
-                className="job-link-btn job-link-btn--stats"
-                onClick={() => setIsStatsPopoverOpen(true)}
-              >
-                View stats
+                Open posting
               </button>
             </div>
-
-            {resolvedImpactSummary && (
-              <div className="audit-summary impact-summary">
-                <p className="audit-summary-text">{resolvedImpactSummary}</p>
-              </div>
-            )}
-
-            {resolvedAuditError && <div className="audit-error">{resolvedAuditError}</div>}
           </div>
         )}
 
         {!scores && (
-          <div className="job-tile-actions-row">
-            <button
-              className={`audit-run-btn audit-run-btn--${auditButtonState}`}
-              onClick={handleRunAudit}
-              disabled={!onAuditRequest || auditLoading || isAuditComplete}
-              title="Run AI audit for this job"
-            >
-              {auditLoading ? 'Running audit…' : isAuditComplete ? 'Audit complete' : auditNeedsRetry ? 'Retry audit' : 'Run audit'}
-            </button>
-
+          <div className="job-tile-actions-row job-tile-actions-row--compact">
+            <span className="job-link-source">{sourceHost}</span>
             <button
               type="button"
-              className="job-link-btn job-link-btn--view"
+              className="job-link-btn job-link-btn--view job-link-btn--compact"
               onClick={openSourceUrl}
               disabled={!job?.source_url}
               title={job?.source_url ? 'Open source job post' : 'No job URL available'}
             >
-              View job
-            </button>
-
-            <button
-              type="button"
-              className="job-link-btn job-link-btn--stats"
-              onClick={() => setIsStatsPopoverOpen(true)}
-            >
-              View stats
+              Open posting
             </button>
           </div>
         )}
       </div>
 
-      <GenericPopover
+      <JobTileStatsPopover
         isOpen={isStatsPopoverOpen}
         onClose={() => setIsStatsPopoverOpen(false)}
-        title={`${job?.name || 'Job'} stats`}
-        className="job-stats-popover"
-      >
-        <div className="job-stats-content">
-          <section className="job-stats-section">
-            <h3>Score breakdown</h3>
-            <div className="job-stats-score-grid">
-              <div><strong>Total</strong>: {totalScore !== undefined ? `${formatScore(totalScore)}%` : '—'}</div>
-              <div><strong>Resume</strong>: {scores ? `${formatScore(scores.resume)}%` : '—'}</div>
-              <div><strong>Impact</strong>: {displayedImpactScore !== undefined ? `${formatScore(displayedImpactScore)}%` : '—'}</div>
-              <div><strong>QoL</strong>: {displayedQualityOfLifeScore !== undefined ? `${formatScore(displayedQualityOfLifeScore)}%` : '—'}</div>
-              <div><strong>Location</strong>: {scores ? `${formatScore(scores.location)}%` : '—'}</div>
-              <div><strong>Fresh</strong>: {scores ? `${formatScore(scores.fresh)}%` : '—'}</div>
-              <div><strong>Audit</strong>: {displayedAuditScore !== undefined ? `${formatScore(displayedAuditScore)}%` : '—'}</div>
-            </div>
-          </section>
-
-          <section className="job-stats-section">
-            <h3>Full job text</h3>
-            <pre className="audit-full-text-pre">{job?.description || 'No job description available.'}</pre>
-            {job?.ai_summary && <pre className="audit-full-text-pre">{job.ai_summary}</pre>}
-          </section>
-
-          <section className="job-stats-section">
-            <h3>Impact report</h3>
-            <pre className="audit-full-text-pre">
-              {resolvedImpactSummary || 'No impact report available yet.'}
-            </pre>
-          </section>
-
-          <section className="job-stats-section">
-            <h3>Quality of life report</h3>
-            <pre className="audit-full-text-pre">
-              {resolvedQualityOfLifeSummary || 'No quality-of-life report available yet.'}
-            </pre>
-          </section>
-
-          <section className="job-stats-section">
-            <h3>AI audit report</h3>
-            <pre className="audit-full-text-pre">{getFullAuditText()}</pre>
-          </section>
-        </div>
-      </GenericPopover>
+        jobName={job?.name}
+        jobSourceUrl={job?.source_url}
+        companyName={job?.company_name}
+        location={job?.location}
+        jobType={job?.type}
+        remote={job?.remote}
+        jobDescription={job?.description}
+        jobSummary={job?.ai_summary}
+        totalScore={totalScore}
+        resumeScore={scores?.resume}
+        impactScore={displayedImpactScore}
+        qualityOfLifeScore={displayedQualityOfLifeScore}
+        locationScore={scores?.location}
+        freshScore={scores?.fresh}
+        auditScore={displayedAuditScore}
+        impactSummary={resolvedImpactSummary}
+        qualityOfLifeSummary={resolvedQualityOfLifeSummary}
+        fullAuditText={getFullAuditText()}
+      />
     </div>
   );
 };

@@ -1,13 +1,13 @@
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CacheHandler } from './CacheHandler.js';
 // Global cache for storing location name -> lat/lon mappings
 const locationCache = new Map();
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const cacheFilePath = path.resolve(moduleDir, '../../cache/locations.json');
+const cacheHandler = new CacheHandler(cacheFilePath);
 console.log("Location cache file path:", cacheFilePath);
 let cacheLoadPromise = null;
-let cacheWritePromise = Promise.resolve();
 function serializeCache() {
     const obj = {};
     for (const [key, value] of locationCache.entries()) {
@@ -17,22 +17,24 @@ function serializeCache() {
 }
 async function persistCacheToDisk() {
     const payload = JSON.stringify(serializeCache(), null, 2);
-    await fs.mkdir(path.dirname(cacheFilePath), { recursive: true });
-    await fs.writeFile(cacheFilePath, payload, 'utf8');
+    await cacheHandler.save(payload);
     console.log("persistCacheToDisk::", cacheFilePath);
 }
 function queueCacheWrite() {
-    cacheWritePromise = cacheWritePromise
-        .then(() => persistCacheToDisk())
+    return persistCacheToDisk()
         .catch((error) => {
         console.warn('Failed to persist location cache:', error);
     });
-    return cacheWritePromise;
 }
 async function loadCacheFromDisk() {
     try {
-        const raw = await fs.readFile(cacheFilePath, 'utf8');
-        const parsed = JSON.parse(raw);
+        const parsed = await cacheHandler.loadWithFallback((raw) => {
+            const value = JSON.parse(raw);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                throw new Error('Cache payload is not a valid object');
+            }
+            return value;
+        });
         for (const [key, value] of Object.entries(parsed)) {
             if (value &&
                 typeof value.lat === 'number' &&
@@ -51,9 +53,7 @@ async function loadCacheFromDisk() {
         }
     }
     catch (error) {
-        if (error?.code !== 'ENOENT') {
-            console.warn('Failed to load location cache from disk:', error);
-        }
+        console.warn('Failed to load location cache from disk:', error);
     }
 }
 async function ensureCacheLoaded() {

@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const CHARITY_PEOPLE_URL = 'https://charitypeople.co.uk/jobs/';
-const MAX_CHARITY_PEOPLE_PAGES = 50;
+const MAX_CHARITY_PEOPLE_PAGES = 200;
 function pageUrl(page) {
     if (page <= 1) {
         return CHARITY_PEOPLE_URL;
@@ -53,7 +53,7 @@ export async function fetchAllCharityPeopleJobs() {
             maxPages: MAX_CHARITY_PEOPLE_PAGES,
             pageUrl,
             parseJobs: (html) => parseCharityPeopleJobs(html),
-            hasNextPage: (html, page) => /\b→\b|next/i.test(html) || new RegExp(`\b${page + 1}\b`).test(html),
+            hasNextPage: (html, page) => /\b→\b|next/i.test(html) || new RegExp(`\\b${page + 1}\\b`).test(html),
         });
         return normalizeJobsWithCoordinates('CharityPeople', normalized);
     }

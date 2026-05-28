@@ -1,5 +1,5 @@
+import scrapedEmployerCache, { getOrCreateEmployer } from '../scraping/ScrapedEmployerCache.js';
 import { askGeminiWithSearch } from '../llms/AskLLM.js';
-import searchAuditCache from './SearchAuditCache.js';
 const inFlightAudits = new Set();
 const auditCompletionCallbacks = new Map();
 function fireAuditCallbacks(auditKey, result) {
@@ -10,10 +10,10 @@ function fireAuditCallbacks(auditKey, result) {
             cb(result);
     }
 }
-// Temporary throttle flag: toggle this off to remove the concurrency cap.
 const ENABLE_TEMP_LLM_CONCURRENCY_CAP = true;
 const TEMP_MAX_SIMULTANEOUS_LLM_AUDITS = 3;
 const QUOTA_WARN_LOG_INTERVAL_MS = 15_000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 let activeLlmAuditCalls = 0;
 const pendingLlmAuditQueue = [];
 let lastQuotaWarnAt = 0;
@@ -53,13 +53,6 @@ function parseAuditRatings(responseText) {
         return null;
     }
 }
-function getJobAuditKey(job) {
-    const sourceUrl = job.source_url?.trim();
-    if (sourceUrl) {
-        return sourceUrl;
-    }
-    return `${job.name}::${job.company_name}::${job.location}`;
-}
 function isFailedAuditText(auditText) {
     if (typeof auditText !== 'string') {
         return false;
@@ -67,8 +60,33 @@ function isFailedAuditText(auditText) {
     const normalized = auditText.trim().toLowerCase();
     return normalized === 'searchaudit failed' || normalized.includes('searchaudit failed');
 }
+function getEmployerAuditKey(job) {
+    const employer = getOrCreateEmployer(job);
+    return String(employer.name ?? '').trim().toLowerCase();
+}
+function computeFinalAuditScore(employer) {
+    if (employer.ai_score > 0 || employer.ai_red_flag_score > 0) {
+        return clampToPercent((employer.ai_score + (100 - employer.ai_red_flag_score)) / 2);
+    }
+    return clampToPercent(employer.ai_score);
+}
+function hydrateJobAuditFromEmployer(job, employer) {
+    const finalAuditScore = computeFinalAuditScore(employer);
+    job.audit_number = finalAuditScore;
+    job.audit_text = JSON.stringify({
+        jobQuality: clampToPercent(employer.ai_score),
+        redFlags: clampToPercent(employer.ai_red_flag_score),
+        finalAuditScore,
+        summary: employer.ai_summary,
+    });
+}
 function clearFailedAudit(job) {
-    searchAuditCache.deleteCachedAudit(job);
+    const employer = getOrCreateEmployer(job);
+    employer.ai_score = 0;
+    employer.ai_red_flag_score = 0;
+    employer.ai_summary = '';
+    employer.ai_red_flag_summary = '';
+    scrapedEmployerCache.setCachedEmployer(employer);
     job.audit_number = 0;
     job.audit_text = '';
 }
@@ -98,35 +116,31 @@ function releaseLlmConcurrencySlot() {
     }
 }
 export function auditJob(job, shouldLog = false, shouldLaunch = false) {
-    const auditKey = getJobAuditKey(job);
-    shouldLog = true;
-    if (isFailedAuditText(job.audit_text)) {
+    const auditKey = getEmployerAuditKey(job);
+    const employer = getOrCreateEmployer(job);
+    shouldLog = shouldLog && !IS_PRODUCTION;
+    if (isFailedAuditText(job.audit_text) || isFailedAuditText(employer.ai_summary)) {
         if (shouldLog) {
             console.log(`[SearchAudit] Existing failure audit found for ${job.name}; deleting and retrying.`);
         }
         clearFailedAudit(job);
     }
-    if (job.audit_number > 0 && job.audit_text.trim().length > 0) {
+    if (employer.ai_summary.trim().length > 0 || employer.ai_score > 0 || employer.ai_red_flag_score > 0) {
         if (shouldLog) {
-            console.log(`[SearchAudit] Existing audit data found for ${job.name}; skipping LLM audit.`);
+            console.log(`[SearchAudit] Existing employer audit found for ${job.name}; skipping LLM audit.`);
         }
+        hydrateJobAuditFromEmployer(job, employer);
         return clampToPercent(job.audit_number);
     }
-    // Check cache
-    const cached = searchAuditCache.getCachedAudit(job);
-    if (cached) {
-        if (isFailedAuditText(cached.auditText)) {
-            if (shouldLog) {
-                console.log(`[SearchAudit] Cached failure found for ${job.name}; deleting and retrying.`);
-            }
-            clearFailedAudit(job);
-        }
-        else {
-            if (shouldLog) {
-                console.log(`[SearchAudit] Cache hit for ${job.name}; using cached audit.`);
-            }
-            job.audit_number = cached.auditScore;
-            job.audit_text = cached.auditText;
+    if (job.audit_number > 0 && job.audit_text.trim().length > 0) {
+        const parsedLegacy = parseAuditRatings(job.audit_text);
+        if (parsedLegacy) {
+            employer.ai_score = parsedLegacy.jobQuality;
+            employer.ai_red_flag_score = parsedLegacy.redFlags;
+            employer.ai_summary = parsedLegacy.summary;
+            employer.ai_red_flag_summary = parsedLegacy.summary;
+            scrapedEmployerCache.setCachedEmployer(employer);
+            hydrateJobAuditFromEmployer(job, employer);
             return clampToPercent(job.audit_number);
         }
     }
@@ -136,8 +150,9 @@ export function auditJob(job, shouldLog = false, shouldLaunch = false) {
         }
         return clampToPercent(job.audit_number);
     }
-    if (!shouldLaunch)
+    if (!shouldLaunch) {
         return clampToPercent(job.audit_number);
+    }
     const question = [
         'Do some background research on this job posting and return ONLY valid JSON. Summarize the research you found on the company. Highlight any red flags about the company or the job posting.',
         '',
@@ -203,9 +218,8 @@ export function auditJob(job, shouldLog = false, shouldLaunch = false) {
         'JSON shape:',
         '{"summary": "string", "jobQuality": number, "redFlags": number}',
     ].join('\n');
-    console.log(`[SearchAudit] Queuing Gemini audit for ${job.name} with question:\n${question}`);
-    if (shouldLog) {
-        // console.log(`[SearchAudit] Running Gemini background audit for ${job.name}`)
+    if (!IS_PRODUCTION) {
+        console.log(`[SearchAudit] Queuing Gemini audit for ${job.name} with question:\n${question}`);
     }
     inFlightAudits.add(auditKey);
     runWithLlmConcurrencyCap(() => {
@@ -213,33 +227,30 @@ export function auditJob(job, shouldLog = false, shouldLaunch = false) {
             try {
                 console.log(`[SearchAudit] Asking Gemini with search for ${job.name}`);
                 const [result] = await askGeminiWithSearch([question], {
-                    systemInstruction: 'You are a strict job-posting auditor. Keep output compact and produce JSON only.'
+                    systemInstruction: 'You are a strict job-posting auditor. Keep output compact and produce JSON only.',
                 });
                 const parsed = parseAuditRatings(result.answer);
                 if (!parsed) {
-                    throw new Error(`SearchAudit failed to parse Gemini response for job: ${job.name}`);
+                    throw new Error(IS_PRODUCTION
+                        ? `SearchAudit failed to parse Gemini response for job: ${job.name}`
+                        : `SearchAudit failed to parse Gemini response for job: ${job.name} ${result.answer}`);
                 }
-                const finalAuditScore = clampToPercent((parsed.jobQuality + (100 - parsed.redFlags)) / 2);
-                job.audit_number = finalAuditScore;
-                job.audit_text = JSON.stringify({
-                    jobQuality: parsed.jobQuality,
-                    redFlags: parsed.redFlags,
-                    finalAuditScore,
-                    summary: parsed.summary
-                });
-                // Cache the result
-                searchAuditCache.setCachedAudit(job, { auditScore: finalAuditScore, auditText: job.audit_text });
-                fireAuditCallbacks(auditKey, { auditScore: finalAuditScore, auditText: job.audit_text });
+                employer.ai_score = parsed.jobQuality;
+                employer.ai_red_flag_score = parsed.redFlags;
+                employer.ai_summary = parsed.summary;
+                employer.ai_red_flag_summary = parsed.summary;
+                scrapedEmployerCache.setCachedEmployer(employer);
+                hydrateJobAuditFromEmployer(job, employer);
+                fireAuditCallbacks(auditKey, { auditScore: job.audit_number, auditText: job.audit_text });
                 if (shouldLog) {
                     console.log(`[SearchAudit] Audit complete for ${job.name}`, {
                         jobQuality: parsed.jobQuality,
                         redFlags: parsed.redFlags,
-                        finalAuditScore
+                        finalAuditScore: job.audit_number,
                     });
                 }
             }
             catch (error) {
-                // Do not persist failed audits; keep state clear so next request can retry.
                 clearFailedAudit(job);
                 fireAuditCallbacks(auditKey, {
                     auditScore: 0,
@@ -265,46 +276,22 @@ export function auditJob(job, shouldLog = false, shouldLaunch = false) {
             }
         })();
     });
-    // Background audit is running; return current score for now.
     return clampToPercent(job.audit_number);
 }
-/**
- * Async variant: resolves when the audit finishes (or immediately if already done).
- * Safe to call multiple times for the same job — duplicate launches are suppressed.
- */
 export function auditJobAsync(job, shouldLog = false) {
-    const auditKey = getJobAuditKey(job);
-    if (isFailedAuditText(job.audit_text)) {
+    const auditKey = getEmployerAuditKey(job);
+    if (isFailedAuditText(job.audit_text) || isFailedAuditText(job.scrapedEmployer?.ai_summary)) {
         clearFailedAudit(job);
     }
-    if (job.audit_number > 0 && job.audit_text.trim().length > 0) {
+    const employer = getOrCreateEmployer(job);
+    if (employer.ai_summary.trim().length > 0 || employer.ai_score > 0 || employer.ai_red_flag_score > 0) {
+        hydrateJobAuditFromEmployer(job, employer);
         return Promise.resolve({ auditScore: clampToPercent(job.audit_number), auditText: job.audit_text });
-    }
-    const auditKey = getJobAuditKey(job);
-    if (inFlightAudits.has(auditKey)) {
-        return true;
-    }
-
-    // Check cache
-    const cached = searchAuditCache.getCachedAudit(job);
-    if (cached) {
-        if (isFailedAuditText(cached.auditText)) {
-            if (shouldLog) {
-                console.log(`[SearchAudit] Cached failure found for ${job.name}; deleting and retrying.`);
-            }
-            clearFailedAudit(job);
-        }
-        else {
-            job.audit_number = cached.auditScore;
-            job.audit_text = cached.auditText;
-            return Promise.resolve(cached);
-        }
     }
     return new Promise((resolve) => {
         const existing = auditCompletionCallbacks.get(auditKey) ?? [];
         existing.push(resolve);
         auditCompletionCallbacks.set(auditKey, existing);
-        // auditJob deduplicates in-flight launches via inFlightAudits
         auditJob(job, shouldLog, true);
     });
 }

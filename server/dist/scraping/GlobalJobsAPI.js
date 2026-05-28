@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const GLOBALJOBS_URL = 'https://www.globaljobs.org/jobs/';
-const MAX_GLOBALJOBS_PAGES = 150;
+const MAX_GLOBALJOBS_PAGES = 300;
 function pageUrl(page) {
     const url = new URL(GLOBALJOBS_URL);
     if (page > 1) {

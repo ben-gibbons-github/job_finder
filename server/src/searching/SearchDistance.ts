@@ -252,10 +252,10 @@ export function calculateLocationScore(
     }
   }
   
-  const remote = isRemoteJob(job) || normalizedUserLocationText.includes('remote')
 
   if (shouldLog) {
-    console.log(`Final location score for job "${job.name}" at "${job.location}": ${distanceScore.toFixed(4)} (remote: ${remote})`)
+    const remote = isRemoteJob(job) || normalizedUserLocationText.includes('remote')
+    console.log(`Final location score for job "${job.name}" at "${job.location}": ${distanceScore.toFixed(4)}`)
   }
   return distanceScore
 }
@@ -295,6 +295,21 @@ export async function geocodeUserLocation(
  * @returns Array of jobs with updated location coordinates
  */
 export async function geocodeJobLocations(jobs: ScrapedJob[], shouldLog = false): Promise<ScrapedJob[]> {
+  const inFlightByLocation = new Map<string, Promise<{ lat: number; lon: number }>>()
+
+  const normalizeLocationKey = (value: string): string => String(value).trim().toLowerCase()
+
+  const shouldSkipGeocodeForJob = (job: ScrapedJob): boolean => {
+    if (!job.location) {
+      return true
+    }
+    // Remote/generic locations do not benefit from geocoding and often create noisy lookups.
+    if (isPurelyRemoteJob(job) || hasGenericOrMissingLocation(job)) {
+      return true
+    }
+    return false
+  }
+
   return Promise.all(
     jobs.map(async (job) => {
       let lat = job.location_lat
@@ -306,14 +321,19 @@ export async function geocodeJobLocations(jobs: ScrapedJob[], shouldLog = false)
           typeof lon !== 'number' ||
           isNaN(lat) ||
           isNaN(lon) ||
-          (lat === 0 && lon === 0)) &&
-        job.location
+          (lat === 0 && lon === 0))
       ) {
+        if (shouldSkipGeocodeForJob(job)) {
+          return { ...job, location_lat: lat, location_lon: lon }
+        }
+
+        const locationKey = normalizeLocationKey(job.location)
+
         try {
-          if (shouldLog) {
-            console.log('Geocoding job location for job:', job.name, 'location:', job.location)
+          if (!inFlightByLocation.has(locationKey)) {
+            inFlightByLocation.set(locationKey, nameToLonLat(job.location))
           }
-          const loc = await nameToLonLat(job.location)
+          const loc = await inFlightByLocation.get(locationKey)!
           lat = loc.lat
           lon = loc.lon
         } catch (e) {

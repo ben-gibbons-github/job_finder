@@ -1,54 +1,87 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
-import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
-const ESCAPE_THE_CITY_URL = 'https://www.escapethecity.org/search/jobs';
-const MAX_ESCAPE_THE_CITY_PAGES = 60;
-function pageUrl(page) {
-    const url = new URL(ESCAPE_THE_CITY_URL);
-    if (page > 1) {
-        url.searchParams.set('page', String(page));
+const ALGOLIA_APP_ID = '6E1NSXNTTH';
+const ALGOLIA_API_KEY = process.env.ESCAPE_THE_CITY_ALGOLIA_API_KEY ?? '';
+const ALGOLIA_INDEX = 'listings-live';
+const ESCAPE_BASE_URL = 'https://www.escapethecity.org';
+const HITS_PER_PAGE = 120;
+const MAX_ESCAPE_THE_CITY_PAGES = 200;
+const FETCH_TIMEOUT_MS = 30_000;
+function asStringArray(value) {
+    if (!value) {
+        return [];
     }
-    return url.toString();
+    return Array.isArray(value) ? value.filter(Boolean) : [value];
 }
-function parseEscapeTheCityJobs(html) {
-    const jobs = [];
-    const linkPattern = /<a[^>]+href="(https:\/\/www\.escapethecity\.org\/opportunity\/[0-9]+-[^"\s]+(?:\?[^"\s]*)?)"[^>]*>([\s\S]*?)<\/a>/gi;
-    for (const match of html.matchAll(linkPattern)) {
-        const sourceUrl = (match[1] || '').trim();
-        const rawTitle = stripHtmlTags(match[2] || '');
-        const title = rawTitle.replace(/^view job\s*/i, '').trim();
-        if (!sourceUrl || !title) {
-            continue;
-        }
-        if (/view job|find a job|job posting|terms|privacy/i.test(title)) {
-            continue;
-        }
-        const from = match.index ?? 0;
-        const context = html.slice(Math.max(0, from - 500), from + 1200);
-        const orgMatch = context.match(/\n\s*([A-Z][A-Za-z0-9&.,'()\- ]{2,90})\s*\n\s*\[Image: Image\]/);
-        const locationMatch = context.match(/\n\s*([A-Za-z .,'()\-\/]{2,100})\s*\n\s*(?:Shaping|Join|Job|NEW|From|\[Image: Image\])/);
-        jobs.push({
-            title,
-            company: (orgMatch?.[1] || 'Escape The City').trim(),
-            location: locationMatch?.[1]?.trim() || 'Unknown',
-            remote: /remote/i.test(context) ? 'Remote' : 'Unknown',
-            type: 'Unknown',
-            sourceUrl,
-            description: '',
-            tags: ['EscapeTheCity', 'Mission Driven'],
-        });
+async function fetchEscapeTheCityPage(page) {
+    if (!ALGOLIA_API_KEY) {
+        throw new Error('Missing ESCAPE_THE_CITY_ALGOLIA_API_KEY');
     }
-    return jobs;
+    const url = `https://${ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/${ALGOLIA_INDEX}/query`;
+    const params = new URLSearchParams({
+        query: '',
+        page: String(page),
+        hitsPerPage: String(HITS_PER_PAGE),
+        facetFilters: JSON.stringify([
+            ['published:true'],
+            ['option-job-search-version:public-jobs'],
+        ]),
+    });
+    const res = await fetch(url, {
+        method: 'POST',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'job-finder-super-scraper/1.0',
+            'x-algolia-application-id': ALGOLIA_APP_ID,
+            'x-algolia-api-key': ALGOLIA_API_KEY,
+        },
+        body: JSON.stringify({ params: params.toString() }),
+    });
+    if (!res.ok) {
+        throw new Error(`Algolia request failed: ${res.status} ${res.statusText}`);
+    }
+    return (await res.json());
+}
+function toNormalizedJob(hit) {
+    const slug = (hit.slug || '').trim();
+    const title = (hit['job-title'] || '').trim();
+    if (!slug || !title) {
+        return null;
+    }
+    const sourceUrl = `${ESCAPE_BASE_URL}/opportunity/${slug}`;
+    const remoteOptions = asStringArray(hit['option-remote']);
+    const roleTerms = asStringArray(hit['option-term']);
+    return {
+        title,
+        company: (hit['org-name'] || 'Escape The City').trim(),
+        location: (hit['location-txt'] || 'Unknown').trim(),
+        remote: remoteOptions[0] || 'Unknown',
+        type: roleTerms[0] || 'Unknown',
+        sourceUrl,
+        posted: hit['posted-date'] || undefined,
+        description: hit.description || '',
+        tags: ['EscapeTheCity', 'Mission Driven', ...asStringArray(hit.cause)],
+    };
 }
 export async function fetchAllEscapeTheCityJobs() {
     try {
-        const normalized = await collectPaginatedHtmlJobs({
-            sourceName: 'EscapeTheCity',
-            maxPages: MAX_ESCAPE_THE_CITY_PAGES,
-            pageUrl,
-            parseJobs: (html) => parseEscapeTheCityJobs(html),
-            hasNextPage: (html) => /load more|showing\s+\d+\s*-\s*\d+\s+of\s+\d+/i.test(html),
-        });
-        return normalizeJobsWithCoordinates('EscapeTheCity', normalized);
+        const allJobs = [];
+        const seenUrls = new Set();
+        let totalPages = 1;
+        for (let page = 0; page < Math.min(MAX_ESCAPE_THE_CITY_PAGES, totalPages); page += 1) {
+            const data = await fetchEscapeTheCityPage(page);
+            totalPages = Math.max(1, data.nbPages || totalPages);
+            for (const hit of data.hits || []) {
+                const job = toNormalizedJob(hit);
+                if (!job || seenUrls.has(job.sourceUrl)) {
+                    continue;
+                }
+                seenUrls.add(job.sourceUrl);
+                allJobs.push(job);
+            }
+        }
+        return normalizeJobsWithCoordinates('EscapeTheCity', allJobs);
     }
     catch (error) {
         console.warn('[EscapeTheCityAPI] Failed to fetch jobs:', String(error));

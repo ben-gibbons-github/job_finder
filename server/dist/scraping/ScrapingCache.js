@@ -1,23 +1,36 @@
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CACHE_DIR = path.resolve(process.cwd(), 'cache');
+import { fileURLToPath } from 'node:url';
+import { CacheHandler } from '../utils/CacheHandler.js';
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const CACHE_DIR = path.resolve(moduleDir, '../../cache');
 function cacheFilePath(componentName) {
     return path.join(CACHE_DIR, `${componentName}.json`);
+}
+const cacheHandlers = new Map();
+function getCacheHandler(componentName) {
+    const existing = cacheHandlers.get(componentName);
+    if (existing) {
+        return existing;
+    }
+    const created = new CacheHandler(cacheFilePath(componentName));
+    cacheHandlers.set(componentName, created);
+    return created;
 }
 export async function ensureCacheDir() {
     await fs.mkdir(CACHE_DIR, { recursive: true });
 }
 export async function readFreshCache(componentName) {
     const filePath = cacheFilePath(componentName);
+    const cacheHandler = getCacheHandler(componentName);
     try {
         const stat = await fs.stat(filePath);
         const cacheAgeMs = Date.now() - stat.mtimeMs;
         if (cacheAgeMs > CACHE_TTL_MS) {
             return null;
         }
-        const raw = await fs.readFile(filePath, 'utf8');
-        const parsed = JSON.parse(raw);
+        const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw));
         if (!Array.isArray(parsed) || parsed.length === 0) {
             return null;
         }
@@ -28,10 +41,9 @@ export async function readFreshCache(componentName) {
     }
 }
 export async function readAnyCache(componentName) {
-    const filePath = cacheFilePath(componentName);
+    const cacheHandler = getCacheHandler(componentName);
     try {
-        const raw = await fs.readFile(filePath, 'utf8');
-        const parsed = JSON.parse(raw);
+        const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw));
         if (!Array.isArray(parsed) || parsed.length === 0) {
             return null;
         }
@@ -42,6 +54,6 @@ export async function readAnyCache(componentName) {
     }
 }
 export async function writeCache(componentName, jobs) {
-    const filePath = cacheFilePath(componentName);
-    await fs.writeFile(filePath, JSON.stringify(jobs, null, 2), 'utf8');
+    const cacheHandler = getCacheHandler(componentName);
+    await cacheHandler.save(JSON.stringify(jobs, null, 2));
 }

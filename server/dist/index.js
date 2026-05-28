@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'http';
@@ -5,15 +6,26 @@ import { Server } from 'socket.io';
 import { scrapeJobsMain } from './scraping/ScrapeJobMain.js';
 import { searchLocationsOpenStreetMap } from './searching/LocationSearch.js';
 import SearchMain from './searching/SearchMain.js';
+import { Top100Search } from './searching/Top100Search.js';
 import { auditJobAsync } from './searching/SearchAudit.js';
 import { impactJobAIAsync } from './searching/SearchImpactAI.js';
+import { qualityOfLifeJobAsync } from './searching/SearchQualityOfLife.js';
+import { callbackRateLimitError, clearSocketRateLimitState, consumeLeakyBucket, emitRateLimitError, } from './utils/RateLimit.js';
+const AI_AUDIT_ALL_COMMAND = 'AIAuditAllJobsInThisSearch';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const AUDIT_ALL_MAX_CONCURRENCY = Math.max(1, Number(process.env.AUDIT_ALL_MAX_CONCURRENCY ?? 4));
+const AUDIT_ALL_MAX_JOBS = Math.max(1, Number(process.env.AUDIT_ALL_MAX_JOBS ?? 250));
+const SHUTDOWN_TIMEOUT_MS = Math.max(1000, Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10000));
 // Global job list
 let JOBS = [];
 const searchMain = new SearchMain();
+const top100Search = new Top100Search(searchMain);
 (async () => {
     try {
         JOBS = await scrapeJobsMain();
         console.log(`Loaded ${JOBS.length} jobs at startup.`);
+        const cached = await top100Search.refresh(JOBS);
+        console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
     }
     catch (err) {
         console.error('Failed to scrape jobs on startup:', err);
@@ -32,27 +44,133 @@ const io = new Server(httpServer, {
         origin: CLIENT_ORIGIN,
     },
 });
+async function runWithConcurrency(items, concurrency, worker) {
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (true) {
+            const index = nextIndex;
+            nextIndex += 1;
+            if (index >= items.length) {
+                return;
+            }
+            await worker(items[index]);
+        }
+    });
+    await Promise.all(workers);
+}
+async function emitJobInsights(socket, job) {
+    const [auditResult, qolResult, impactResult] = await Promise.allSettled([
+        auditJobAsync(job, true),
+        qualityOfLifeJobAsync(job, true),
+        impactJobAIAsync(job, true),
+    ]);
+    if (auditResult.status === 'fulfilled') {
+        socket.emit('job:audit:result', { source_url: job.source_url, ...auditResult.value });
+    }
+    else {
+        console.error(`Audit failed for ${job.source_url}: ${String(auditResult.reason)}`);
+    }
+    if (qolResult.status === 'fulfilled') {
+        socket.emit('job:qualityOfLife:result', { source_url: job.source_url, ...qolResult.value });
+    }
+    else {
+        console.error(`Quality-of-life scoring failed for ${job.source_url}: ${String(qolResult.reason)}`);
+    }
+    if (impactResult.status === 'fulfilled') {
+        socket.emit('job:impact:result', {
+            source_url: job.source_url,
+            ai_impact_score: impactResult.value.impactScore,
+            ai_impact_summary: impactResult.value.impactSummary,
+            impactScore: impactResult.value.impactScore,
+            impactSummary: impactResult.value.impactSummary,
+            error: impactResult.value.error,
+        });
+    }
+    else {
+        console.error(`Impact scoring failed for ${job.source_url}: ${String(impactResult.reason)}`);
+    }
+}
 io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}`);
     socket.emit('server:hello', 'Hello from Socket.IO server!');
-    socket.on('client:hello', (message) => {
-        console.log(`Client says: ${message}`);
-        socket.emit('server:hello', `Server received: ${message}`);
-    });
-    socket.on('search', (payload, callback) => {
+    const cachedDefaultSearchResponse = top100Search.getCached();
+    if (cachedDefaultSearchResponse) {
+        socket.emit('search:results', cachedDefaultSearchResponse);
+    }
+    else {
+        // Build and send the default results once jobs are available and cache is ready.
+        ;
+        (async () => {
+            try {
+                const cached = await top100Search.getOrBuild(JOBS);
+                if (cached) {
+                    socket.emit('search:results', cached);
+                }
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`Failed to build default cached search for new client: ${message}`);
+            }
+        })();
+    }
+    socket.on('search', async (payload, callback) => {
+        if (!consumeLeakyBucket(socket.id, 'search')) {
+            emitRateLimitError(socket, 'search');
+            callbackRateLimitError(callback, {
+                results: [],
+                total: 0,
+                meta: undefined,
+                error: 'Rate limit exceeded for search',
+            });
+            return;
+        }
+        if (payload?.command === AI_AUDIT_ALL_COMMAND && !consumeLeakyBucket(socket.id, 'search:auditAll')) {
+            emitRateLimitError(socket, 'search:auditAll');
+            callbackRateLimitError(callback, {
+                results: [],
+                total: 0,
+                meta: undefined,
+                error: 'Rate limit exceeded for audit-all command',
+            });
+            return;
+        }
         try {
-            // console.log('payload', payload)
-            ;
-            (async () => {
-                const results = await searchMain.search(JOBS, payload);
-                const response = {
-                    results: results.matched,
-                    total: results.size,
+            const results = await searchMain.search(JOBS, payload);
+            const response = {
+                results: results.matched,
+                total: results.size,
+                meta: results.meta,
+            };
+            if (!IS_PRODUCTION) {
+                console.log('payload?.command', payload?.command);
+            }
+            if (payload?.command === AI_AUDIT_ALL_COMMAND) {
+                const fullSearchPayload = {
+                    ...payload,
+                    start: -1,
+                    end: -1,
                 };
-                callback?.(response);
+                const fullResults = await searchMain.search(JOBS, fullSearchPayload);
+                const jobsToAudit = fullResults.matched.map((wrapper) => wrapper.job);
+                const cappedJobs = jobsToAudit.slice(0, AUDIT_ALL_MAX_JOBS);
+                if (jobsToAudit.length > AUDIT_ALL_MAX_JOBS) {
+                    console.warn(`[Search] Audit-all capped at ${AUDIT_ALL_MAX_JOBS} jobs (matched: ${jobsToAudit.length})`);
+                }
+                console.log(`[Search] Running audit-all command for ${cappedJobs.length} matched jobs`);
+                void runWithConcurrency(cappedJobs, AUDIT_ALL_MAX_CONCURRENCY, async (job) => {
+                    await emitJobInsights(socket, job);
+                }).catch((err) => {
+                    console.error(`Audit-all worker failed: ${String(err)}`);
+                });
+            }
+            callback?.(response);
+            if (IS_PRODUCTION) {
+                console.log(`Search completed. results found: ${results.size}`);
+            }
+            else {
                 console.log(`Search completed with query: ${payload.query}, results found: ${results.size}`, payload);
-                socket.emit('search:results', response);
-            })();
+            }
+            socket.emit('search:results', response);
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -60,6 +178,7 @@ io.on('connection', (socket) => {
             const errorResponse = {
                 results: [],
                 total: 0,
+                meta: undefined,
                 error: 'Search failed',
             };
             callback?.(errorResponse);
@@ -67,6 +186,14 @@ io.on('connection', (socket) => {
         }
     });
     socket.on('locations:search', async (payload, callback) => {
+        if (!consumeLeakyBucket(socket.id, 'locations:search')) {
+            emitRateLimitError(socket, 'locations:search');
+            callbackRateLimitError(callback, {
+                options: [],
+                error: 'Rate limit exceeded for location search',
+            });
+            return;
+        }
         const query = (payload?.query || '').trim();
         if (query.length < 2) {
             callback?.({ options: [] });
@@ -83,10 +210,22 @@ io.on('connection', (socket) => {
         }
     });
     socket.on('disconnect', () => {
+        clearSocketRateLimitState(socket.id);
         console.log(`Socket disconnected: ${socket.id}`);
     });
     socket.on('job:audit', (payload, callback) => {
-        console.log('Received audit request for job:', payload);
+        if (!consumeLeakyBucket(socket.id, 'job:audit')) {
+            emitRateLimitError(socket, 'job:audit');
+            callbackRateLimitError(callback, {
+                auditScore: 0,
+                auditText: '',
+                error: 'Rate limit exceeded for job audit',
+            });
+            return;
+        }
+        if (!IS_PRODUCTION) {
+            console.log('Received audit request for job:', payload);
+        }
         const job = payload.source_url
             ? JOBS.find((j) => j.source_url === payload.source_url)
             : JOBS.find((j) => j.name === payload.name && j.company_name === payload.company_name);
@@ -96,23 +235,87 @@ io.on('connection', (socket) => {
             callback?.(notFound);
             return;
         }
-        auditJobAsync(job, true).then((result) => {
-            callback?.(result);
-            socket.emit('job:audit:result', { source_url: job.source_url, ...result });
-        });
-        console.log('Emitting impact result for job:', job.name);
-        impactJobAIAsync(job, true).then((result) => {
-            socket.emit('job:impact:result', {
-                source_url: job.source_url,
-                ai_impact_score: result.impactScore,
-                ai_impact_summary: result.impactSummary,
-                impactScore: result.impactScore,
-                impactSummary: result.impactSummary,
-                error: result.error,
-            });
-        });
+        void (async () => {
+            try {
+                const auditResult = await auditJobAsync(job, true);
+                callback?.(auditResult);
+                socket.emit('job:audit:result', { source_url: job.source_url, ...auditResult });
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                callback?.({ auditScore: 0, auditText: '', error: `Job audit failed: ${message}` });
+                console.error(`Audit failed for ${job.source_url}: ${message}`);
+            }
+            try {
+                const qolResult = await qualityOfLifeJobAsync(job, true);
+                socket.emit('job:qualityOfLife:result', { source_url: job.source_url, ...qolResult });
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`Quality-of-life scoring failed for ${job.source_url}: ${message}`);
+            }
+            try {
+                const impactResult = await impactJobAIAsync(job, true);
+                socket.emit('job:impact:result', {
+                    source_url: job.source_url,
+                    ai_impact_score: impactResult.impactScore,
+                    ai_impact_summary: impactResult.impactSummary,
+                    impactScore: impactResult.impactScore,
+                    impactSummary: impactResult.impactSummary,
+                    error: impactResult.error,
+                });
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`Impact scoring failed for ${job.source_url}: ${message}`);
+            }
+        })();
     });
 });
 httpServer.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+});
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+    if (shuttingDown) {
+        return;
+    }
+    shuttingDown = true;
+    console.log(`Received ${signal}. Starting graceful shutdown...`);
+    const timeout = setTimeout(() => {
+        console.error(`Forced shutdown after ${SHUTDOWN_TIMEOUT_MS}ms timeout.`);
+        process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+    timeout.unref();
+    try {
+        await new Promise((resolve) => io.close(() => resolve()));
+        await new Promise((resolve, reject) => {
+            httpServer.close((error) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                resolve();
+            });
+        });
+        console.log('Graceful shutdown complete.');
+        process.exit(0);
+    }
+    catch (error) {
+        console.error('Shutdown failed:', error);
+        process.exit(1);
+    }
+}
+process.on('SIGTERM', () => {
+    void gracefulShutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+    void gracefulShutdown('SIGINT');
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+    void gracefulShutdown('uncaughtException');
 });

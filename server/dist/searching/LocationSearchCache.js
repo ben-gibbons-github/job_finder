@@ -1,20 +1,19 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promises as fs } from 'node:fs';
+import { CacheHandler } from '../utils/CacheHandler.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CACHE_FILE_PATH = path.resolve(__dirname, '../../cache/locationsearch.json');
+const cacheHandler = new CacheHandler(CACHE_FILE_PATH);
 const locationSearchCache = new Map();
 let loadPromise = null;
-let writeQueue = Promise.resolve();
 async function ensureCacheLoaded() {
     if (loadPromise) {
         return loadPromise;
     }
     loadPromise = (async () => {
         try {
-            const raw = await fs.readFile(CACHE_FILE_PATH, 'utf8');
-            const parsed = JSON.parse(raw);
+            const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw));
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
                 return;
             }
@@ -44,13 +43,7 @@ async function ensureCacheLoaded() {
 }
 async function persistCacheToDisk() {
     const payload = Object.fromEntries(locationSearchCache);
-    writeQueue = writeQueue
-        .then(async () => {
-        await fs.mkdir(path.dirname(CACHE_FILE_PATH), { recursive: true });
-        await fs.writeFile(CACHE_FILE_PATH, JSON.stringify(payload, null, 2), 'utf8');
-    })
-        .catch(() => undefined);
-    return writeQueue;
+    await cacheHandler.save(JSON.stringify(payload, null, 2)).catch(() => undefined);
 }
 export async function getCachedLocationSearch(query) {
     await ensureCacheLoaded();

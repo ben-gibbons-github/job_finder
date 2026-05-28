@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { HARDCODED_LOCATIONS } from './HardcodedLocations.js';
+const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY ?? '';
+const MAPQUEST_API_KEY = process.env.MAPQUEST_API_KEY ?? '';
 /**
  * Geocoding API strategies for location lookup
  * Each strategy is an async function that attempts to geocode a location
@@ -53,12 +55,15 @@ export async function nominatimStrategy(placeName) {
  * Note: Demo key provided; replace with your own for production
  */
 export async function geoapifyStrategy(placeName) {
+    if (!GEOAPIFY_API_KEY) {
+        throw new Error('Missing GEOAPIFY_API_KEY');
+    }
     // console.log('[Geoapify] Attempting to geocode:', placeName)
     const response = await axios.get('https://api.geoapify.com/v1/geocode/search', {
         params: {
             text: placeName,
             format: 'json',
-            apiKey: '8e6e4e2e2e6e4e2e2e6e4e2e2e6e4e2e', // Demo key, replace with your own for production
+            apiKey: GEOAPIFY_API_KEY,
             limit: 1,
         },
     });
@@ -101,14 +106,16 @@ export async function openMeteoStrategy(placeName) {
     return latLon;
 }
 /**
- * 4. MapQuest Nominatim - Requires API key
- * Note: Replace 'KEY-REQUIRED' with your actual MapQuest API key
+ * 4. MapQuest Nominatim - Requires MAPQUEST_API_KEY env var
  */
 export async function mapquestStrategy(placeName) {
+    if (!MAPQUEST_API_KEY) {
+        throw new Error('Missing MAPQUEST_API_KEY');
+    }
     // console.log('[MapQuest] Attempting to geocode:', placeName)
     const response = await axios.get('https://www.mapquestapi.com/geocoding/v1/address', {
         params: {
-            key: 'KEY-REQUIRED', // Replace with your MapQuest API key
+            key: MAPQUEST_API_KEY,
             location: placeName,
             maxResults: 1,
         },

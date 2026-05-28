@@ -1,7 +1,7 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 import { collectPaginatedHtmlJobs, stripHtmlTags } from './PaginatedHtmlScrapeUtils.js';
 const ETHICAL_JOBS_URL = 'https://www.ethicaljobs.com.au/jobs';
-const MAX_ETHICAL_JOBS_PAGES = 120;
+const MAX_ETHICAL_JOBS_PAGES = 250;
 function fallbackTitleFromUrl(sourceUrl) {
     const slug = sourceUrl.split('/').filter(Boolean).at(-1) || '';
     if (!slug) {

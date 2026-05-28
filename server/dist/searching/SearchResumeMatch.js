@@ -79,8 +79,11 @@ export function calculateResumeScore(job, resumeText, shouldLog = false) {
         toSafeText(job.company_name),
         toSafeText(job.description),
         toSafeText(job.type),
-        toSafeText(job.ai_summary),
-        toSafeText(job.ai_red_flag_summary),
+        toSafeText(job.scrapedEmployer?.name || ''),
+        toSafeText(job.scrapedEmployer?.ai_impact_summary || ''),
+        toSafeText(job.scrapedEmployer?.ai_summary || ''),
+        toSafeText(job.scrapedEmployer?.ai_red_flag_summary || ''),
+        toSafeText(job.scrapedEmployer?.employeeQualityOfLifeSummary || ''),
         job.tags.map((tag) => toSafeText(tag)).join(' '),
     ].join(' ');
     const score = overlapScore(resumeTokens, resumeTarget);

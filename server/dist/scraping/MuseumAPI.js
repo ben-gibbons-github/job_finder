@@ -1,6 +1,6 @@
 import { normalizeJobsWithCoordinates } from './PortalIngestionUtils.js';
 const MUSEUM_JOBS_URL = 'https://aam-us-jobs.careerwebsite.com/jobs/';
-const MAX_MUSEUM_PAGES = 50;
+const MAX_MUSEUM_PAGES = 150;
 function stripHtmlTags(value) {
     return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }

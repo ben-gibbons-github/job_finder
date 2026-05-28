@@ -589,8 +589,8 @@ function toSearchableText(job) {
         job.location,
         job.description,
         job.type,
-        job.ai_summary,
-        job.ai_red_flag_summary,
+        job.scrapedEmployer?.ai_summary,
+        job.scrapedEmployer?.ai_red_flag_summary,
         job.tags.join(' '),
     ].map((part) => normalizeText(part)).join(' ').trim();
 }
@@ -610,11 +610,11 @@ function buildFieldCorpus(job) {
         { text: normalizeText(job.name), weight: FIELD_WEIGHTS.name },
         { text: normalizeText(job.tags.join(' ')), weight: FIELD_WEIGHTS.tags },
         { text: normalizeText(job.type), weight: FIELD_WEIGHTS.type },
-        { text: normalizeText(job.ai_summary), weight: FIELD_WEIGHTS.aiSummary },
+        { text: normalizeText(job.scrapedEmployer?.ai_summary), weight: FIELD_WEIGHTS.aiSummary },
         { text: normalizeText(job.description), weight: FIELD_WEIGHTS.description },
         { text: normalizeText(job.company_name), weight: FIELD_WEIGHTS.companyName },
         { text: normalizeText(job.location), weight: FIELD_WEIGHTS.location },
-        { text: normalizeText(job.ai_red_flag_summary), weight: FIELD_WEIGHTS.aiRedFlagSummary },
+        { text: normalizeText(job.scrapedEmployer?.ai_red_flag_summary), weight: FIELD_WEIGHTS.aiRedFlagSummary },
     ];
 }
 function textContainsAny(text, phrases) {
@@ -647,8 +647,8 @@ function textContainsAny(text, phrases) {
  * @returns Impact score between 0 and 1
  */
 export function calculateImpactScore(job, shouldLog = false) {
-    const aiImpactSummary = String(job.ai_impact_summary ?? '').trim();
-    const aiImpactScore = normalizeImpactNumber(job.ai_impact_score);
+    const aiImpactSummary = String(job.scrapedEmployer?.ai_impact_summary ?? '').trim();
+    const aiImpactScore = normalizeImpactNumber(job.scrapedEmployer?.ai_impact_score);
     if (aiImpactSummary.length > 0) {
         if (shouldLog) {
             console.log('Using AI impact score for job:', job.name, 'value:', aiImpactScore);

@@ -15,6 +15,7 @@ const Pagination: React.FC<PaginationProps> = ({
   onPageChange,
 }) => {
   const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const [customPage, setCustomPage] = React.useState('')
 
   if (totalPages <= 1) {
     return null
@@ -55,6 +56,16 @@ const Pagination: React.FC<PaginationProps> = ({
 
   const pageNumbers = getPageNumbers()
 
+  const submitCustomPage = () => {
+    const parsed = Number(customPage)
+    if (!Number.isFinite(parsed)) {
+      return
+    }
+    const clamped = Math.max(1, Math.min(totalPages, Math.trunc(parsed)))
+    onPageChange(clamped)
+    setCustomPage('')
+  }
+
   return (
     <div className="pagination">
       <button
@@ -85,6 +96,31 @@ const Pagination: React.FC<PaginationProps> = ({
             </button>
           )
         })}
+      </div>
+
+      <div className="pagination-jump" aria-label="Jump to custom page">
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={customPage}
+          onChange={(event) => setCustomPage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              submitCustomPage()
+            }
+          }}
+          className="pagination-jump-input"
+          placeholder="Page"
+        />
+        <button
+          type="button"
+          className="pagination-jump-btn"
+          onClick={submitCustomPage}
+          disabled={customPage.trim().length === 0}
+        >
+          Go
+        </button>
       </div>
 
       <button

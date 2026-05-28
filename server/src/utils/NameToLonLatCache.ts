@@ -1,6 +1,6 @@
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CacheHandler } from './CacheHandler.js';
 
 export interface LatLonPair {
   lat: number;
@@ -12,10 +12,10 @@ export interface LatLonPair {
 const locationCache: Map<string, LatLonPair> = new Map();
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const cacheFilePath = path.resolve(moduleDir, '../../cache/locations.json');
+const cacheHandler = new CacheHandler(cacheFilePath);
 console.log("Location cache file path:", cacheFilePath);
 
 let cacheLoadPromise: Promise<void> | null = null;
-let cacheWritePromise: Promise<void> = Promise.resolve();
 
 function serializeCache(): Record<string, LatLonPair> {
   const obj: Record<string, LatLonPair> = {};
@@ -27,24 +27,26 @@ function serializeCache(): Record<string, LatLonPair> {
 
 async function persistCacheToDisk(): Promise<void> {
   const payload = JSON.stringify(serializeCache(), null, 2);
-  await fs.mkdir(path.dirname(cacheFilePath), { recursive: true });
-  await fs.writeFile(cacheFilePath, payload, 'utf8');
+  await cacheHandler.save(payload);
   console.log("persistCacheToDisk::", cacheFilePath);
 }
 
 function queueCacheWrite(): Promise<void> {
-  cacheWritePromise = cacheWritePromise
-    .then(() => persistCacheToDisk())
+  return persistCacheToDisk()
     .catch((error) => {
       console.warn('Failed to persist location cache:', error);
     });
-  return cacheWritePromise;
 }
 
 async function loadCacheFromDisk(): Promise<void> {
   try {
-    const raw = await fs.readFile(cacheFilePath, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, LatLonPair>;
+    const parsed = await cacheHandler.loadWithFallback((raw) => {
+      const value = JSON.parse(raw) as unknown;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Cache payload is not a valid object');
+      }
+      return value as Record<string, LatLonPair>;
+    });
     for (const [key, value] of Object.entries(parsed)) {
       if (
         value &&
@@ -63,10 +65,8 @@ async function loadCacheFromDisk(): Promise<void> {
         locationCache.set(key, { lat: value.lat, lon: value.lon });
       }
     }
-  } catch (error: any) {
-    if (error?.code !== 'ENOENT') {
-      console.warn('Failed to load location cache from disk:', error);
-    }
+  } catch (error) {
+    console.warn('Failed to load location cache from disk:', error);
   }
 }
 

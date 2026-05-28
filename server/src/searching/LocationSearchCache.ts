@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promises as fs } from 'node:fs'
+import { CacheHandler } from '../utils/CacheHandler.js'
 
 export interface CachedLocationOption {
   value: string
@@ -15,12 +15,12 @@ export interface CachedLocationOption {
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CACHE_FILE_PATH = path.resolve(__dirname, '../../cache/locationsearch.json')
+const cacheHandler = new CacheHandler(CACHE_FILE_PATH)
 
 type LocationSearchCacheStore = Record<string, CachedLocationOption[]>
 
 const locationSearchCache = new Map<string, CachedLocationOption[]>()
 let loadPromise: Promise<void> | null = null
-let writeQueue: Promise<void> = Promise.resolve()
 
 async function ensureCacheLoaded(): Promise<void> {
   if (loadPromise) {
@@ -29,8 +29,7 @@ async function ensureCacheLoaded(): Promise<void> {
 
   loadPromise = (async () => {
     try {
-      const raw = await fs.readFile(CACHE_FILE_PATH, 'utf8')
-      const parsed = JSON.parse(raw) as unknown
+      const parsed = await cacheHandler.loadWithFallback((raw) => JSON.parse(raw) as unknown)
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return
       }
@@ -66,15 +65,7 @@ async function ensureCacheLoaded(): Promise<void> {
 
 async function persistCacheToDisk(): Promise<void> {
   const payload: LocationSearchCacheStore = Object.fromEntries(locationSearchCache)
-
-  writeQueue = writeQueue
-    .then(async () => {
-      await fs.mkdir(path.dirname(CACHE_FILE_PATH), { recursive: true })
-      await fs.writeFile(CACHE_FILE_PATH, JSON.stringify(payload, null, 2), 'utf8')
-    })
-    .catch(() => undefined)
-
-  return writeQueue
+  await cacheHandler.save(JSON.stringify(payload, null, 2)).catch(() => undefined)
 }
 
 export async function getCachedLocationSearch(query: string): Promise<CachedLocationOption[] | null> {

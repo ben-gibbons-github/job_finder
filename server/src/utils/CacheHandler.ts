@@ -1,0 +1,291 @@
+import { promises as fs } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import path from 'node:path';
+
+export type CacheParseFn<T> = (raw: string, sourcePath: string) => T | Promise<T>;
+
+export interface CacheHandlerOptions {
+  backupEveryNSaves?: number;
+  backup1Path?: string;
+  backup2Path?: string;
+}
+
+export class CacheHandler {
+  private readonly cachePath: string;
+  private readonly backup1Path: string;
+  private readonly backup2Path: string;
+  private readonly backupEveryNSaves: number;
+
+  private saveCount = 0;
+  private writeQueue: Promise<void> = Promise.resolve();
+
+  constructor(cachePath: string, options: CacheHandlerOptions = {}) {
+    this.cachePath = cachePath;
+    this.backup1Path = options.backup1Path ?? `${cachePath}.backup1`;
+    this.backup2Path = options.backup2Path ?? `${cachePath}.backup2`;
+    this.backupEveryNSaves = Math.max(1, options.backupEveryNSaves ?? 10);
+  }
+
+  public getPaths(): { cachePath: string; backup1Path: string; backup2Path: string } {
+    return {
+      cachePath: this.cachePath,
+      backup1Path: this.backup1Path,
+      backup2Path: this.backup2Path,
+    };
+  }
+
+  public save(serializedData: string): Promise<void> {
+    this.writeQueue = this.writeQueue.then(async () => {
+      await fs.mkdir(path.dirname(this.cachePath), { recursive: true });
+      await fs.writeFile(this.cachePath, serializedData, 'utf8');
+      await fs.writeFile(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(serializedData, 'utf8')), 'utf8');
+
+      this.saveCount += 1;
+      if (this.saveCount % this.backupEveryNSaves === 0) {
+        await this.rotateBackups();
+      }
+    });
+
+    return this.writeQueue;
+  }
+
+  public saveSync(serializedData: string): void {
+    mkdirSync(path.dirname(this.cachePath), { recursive: true });
+    writeFileSync(this.cachePath, serializedData, 'utf8');
+    writeFileSync(this.sizeFilePath(this.cachePath), String(Buffer.byteLength(serializedData, 'utf8')), 'utf8');
+
+    this.saveCount += 1;
+    if (this.saveCount % this.backupEveryNSaves === 0) {
+      this.rotateBackupsSync();
+    }
+  }
+
+  public async loadWithFallback<T>(parse: CacheParseFn<T>): Promise<T> {
+    const candidates = [this.cachePath, this.backup1Path, this.backup2Path];
+    const failures: string[] = [];
+
+    for (const candidatePath of candidates) {
+      let raw: string;
+
+      try {
+        raw = await fs.readFile(candidatePath, 'utf8');
+      } catch (error) {
+        failures.push(`${candidatePath}: read failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+
+      try {
+        const validSize = await this.validateSizeIfPresent(candidatePath, raw);
+        if (!validSize) {
+          failures.push(`${candidatePath}: size mismatch with sidecar file`);
+          continue;
+        }
+      } catch (error) {
+        failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+
+      try {
+        const parsed = await parse(raw, candidatePath);
+        await this.healLegacyArtifacts(candidatePath, raw);
+        return parsed;
+      } catch (error) {
+        failures.push(`${candidatePath}: parse failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+    }
+
+    throw new Error(`All cache files failed to load. ${failures.join(' | ')}`);
+  }
+
+  public loadWithFallbackSync<T>(parse: (raw: string, sourcePath: string) => T): T {
+    const candidates = [this.cachePath, this.backup1Path, this.backup2Path];
+    const failures: string[] = [];
+
+    for (const candidatePath of candidates) {
+      let raw: string;
+
+      try {
+        raw = readFileSync(candidatePath, 'utf8');
+      } catch (error) {
+        failures.push(`${candidatePath}: read failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+
+      try {
+        const validSize = this.validateSizeIfPresentSync(candidatePath, raw);
+        if (!validSize) {
+          failures.push(`${candidatePath}: size mismatch with sidecar file`);
+          continue;
+        }
+      } catch (error) {
+        failures.push(`${candidatePath}: size verification failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+
+      try {
+        const parsed = parse(raw, candidatePath);
+        this.healLegacyArtifactsSync(candidatePath, raw);
+        return parsed;
+      } catch (error) {
+        failures.push(`${candidatePath}: parse failed (${this.errorToMessage(error)})`);
+        continue;
+      }
+    }
+
+    throw new Error(`All cache files failed to load. ${failures.join(' | ')}`);
+  }
+
+  private async rotateBackups(): Promise<void> {
+    await this.copyIfExists(this.backup1Path, this.backup2Path);
+    await this.copyIfExists(this.sizeFilePath(this.backup1Path), this.sizeFilePath(this.backup2Path));
+    await this.copyIfExists(this.cachePath, this.backup1Path);
+    await this.copyIfExists(this.sizeFilePath(this.cachePath), this.sizeFilePath(this.backup1Path));
+  }
+
+  private rotateBackupsSync(): void {
+    this.copyIfExistsSync(this.backup1Path, this.backup2Path);
+    this.copyIfExistsSync(this.sizeFilePath(this.backup1Path), this.sizeFilePath(this.backup2Path));
+    this.copyIfExistsSync(this.cachePath, this.backup1Path);
+    this.copyIfExistsSync(this.sizeFilePath(this.cachePath), this.sizeFilePath(this.backup1Path));
+  }
+
+  private async validateSizeIfPresent(filePath: string, raw: string): Promise<boolean> {
+    const sizePath = this.sizeFilePath(filePath);
+    let expectedSizeRaw: string;
+
+    try {
+      expectedSizeRaw = await fs.readFile(sizePath, 'utf8');
+    } catch (error: unknown) {
+      if (this.isMissingFileError(error)) {
+        return true;
+      }
+      throw error;
+    }
+
+    const expectedSize = Number(expectedSizeRaw.trim());
+    if (!Number.isFinite(expectedSize) || expectedSize < 0) {
+      return false;
+    }
+
+    const actualSize = Buffer.byteLength(raw, 'utf8');
+    return actualSize === expectedSize;
+  }
+
+  private async healLegacyArtifacts(filePath: string, raw: string): Promise<void> {
+    const sizePath = this.sizeFilePath(filePath);
+    const rawSize = String(Buffer.byteLength(raw, 'utf8'));
+
+    if (!(await this.pathExists(sizePath))) {
+      await fs.writeFile(sizePath, rawSize, 'utf8');
+    }
+
+    if (filePath !== this.cachePath) {
+      return;
+    }
+
+    if (!(await this.pathExists(this.backup1Path))) {
+      await fs.copyFile(this.cachePath, this.backup1Path);
+      await fs.writeFile(this.sizeFilePath(this.backup1Path), rawSize, 'utf8');
+    }
+
+    if (!(await this.pathExists(this.backup2Path))) {
+      await fs.copyFile(this.cachePath, this.backup2Path);
+      await fs.writeFile(this.sizeFilePath(this.backup2Path), rawSize, 'utf8');
+    }
+  }
+
+  private validateSizeIfPresentSync(filePath: string, raw: string): boolean {
+    const sizePath = this.sizeFilePath(filePath);
+    let expectedSizeRaw: string;
+
+    try {
+      expectedSizeRaw = readFileSync(sizePath, 'utf8');
+    } catch (error: unknown) {
+      if (this.isMissingFileError(error)) {
+        return true;
+      }
+      throw error;
+    }
+
+    const expectedSize = Number(expectedSizeRaw.trim());
+    if (!Number.isFinite(expectedSize) || expectedSize < 0) {
+      return false;
+    }
+
+    const actualSize = Buffer.byteLength(raw, 'utf8');
+    return actualSize === expectedSize;
+  }
+
+  private healLegacyArtifactsSync(filePath: string, raw: string): void {
+    const sizePath = this.sizeFilePath(filePath);
+    const rawSize = String(Buffer.byteLength(raw, 'utf8'));
+
+    if (!existsSync(sizePath)) {
+      writeFileSync(sizePath, rawSize, 'utf8');
+    }
+
+    if (filePath !== this.cachePath) {
+      return;
+    }
+
+    if (!existsSync(this.backup1Path)) {
+      copyFileSync(this.cachePath, this.backup1Path);
+      writeFileSync(this.sizeFilePath(this.backup1Path), rawSize, 'utf8');
+    }
+
+    if (!existsSync(this.backup2Path)) {
+      copyFileSync(this.cachePath, this.backup2Path);
+      writeFileSync(this.sizeFilePath(this.backup2Path), rawSize, 'utf8');
+    }
+  }
+
+  private async copyIfExists(sourcePath: string, targetPath: string): Promise<void> {
+    try {
+      await fs.copyFile(sourcePath, targetPath);
+    } catch (error: unknown) {
+      if (this.isMissingFileError(error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private copyIfExistsSync(sourcePath: string, targetPath: string): void {
+    try {
+      copyFileSync(sourcePath, targetPath);
+    } catch (error: unknown) {
+      if (this.isMissingFileError(error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private isMissingFileError(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT';
+  }
+
+  private async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private sizeFilePath(filePath: string): string {
+    return `${filePath}_size`;
+  }
+
+  private errorToMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+}

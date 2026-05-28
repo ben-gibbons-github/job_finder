@@ -4,7 +4,7 @@ import { normalizeJobsWithCoordinates, type NormalizedPortalJob } from './Portal
 import { fetchPortalFallbackJobs } from './TerraBoardFallback.js';
 
 const ALGOLIA_APP_ID = 'W6KM1UDIB3';
-const ALGOLIA_API_KEY = 'd1d7f2c8696e7b36837d5ed337c4a319';
+const ALGOLIA_API_KEY = process.env.EIGHTYK_HOURS_ALGOLIA_API_KEY ?? '';
 const ALGOLIA_INDEX = 'jobs_prod_super_ranked';
 const MAX_80K_HOURS_PAGES = 400;
 
@@ -13,6 +13,10 @@ function stripHtmlTags(value: string): string {
 }
 
 async function fetch80KFromAlgolia(): Promise<ScrapedJob[]> {
+  if (!ALGOLIA_API_KEY) {
+    return [];
+  }
+
   try {
     const endpoint = `https://${ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/${ALGOLIA_INDEX}/query`;
     const normalized: NormalizedPortalJob[] = [];

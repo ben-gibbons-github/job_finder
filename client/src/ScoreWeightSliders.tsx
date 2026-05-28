@@ -24,9 +24,24 @@ const SLIDERS: { key: keyof ScoreWeights; label: string }[] = [
   { key: 'qualityOfLife', label: 'Quality of Life' },
 ]
 
+const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
+  resume: 1,
+  impact: 1,
+  location: 1,
+  fresh: 1,
+  audit: 1,
+  qualityOfLife: 1,
+}
+
 const ScoreWeightSliders: React.FC<ScoreWeightSlidersProps> = ({ weights, onChange }) => {
   const handleChange = (key: keyof ScoreWeights, value: number) => {
     onChange({ ...weights, [key]: value })
+  }
+
+  const isDefaultWeights = SLIDERS.every(({ key }) => weights[key] === DEFAULT_SCORE_WEIGHTS[key])
+
+  const handleResetAll = () => {
+    onChange({ ...DEFAULT_SCORE_WEIGHTS })
   }
 
   return (
@@ -50,6 +65,17 @@ const ScoreWeightSliders: React.FC<ScoreWeightSlidersProps> = ({ weights, onChan
             />
           </div>
         ))}
+      </div>
+
+      <div className="score-weight-sliders__actions">
+        <button
+          type="button"
+          className="score-weight-sliders__reset-btn"
+          onClick={handleResetAll}
+          disabled={isDefaultWeights}
+        >
+          Reset all
+        </button>
       </div>
     </div>
   )

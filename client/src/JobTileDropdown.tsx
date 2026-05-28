@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import GenericPopover from './GenericPopover';
 
 interface Job {
   name?: string;
@@ -24,6 +25,9 @@ interface JobTileDropdownProps {
   resumeDisplayName?: string;
   selectedResumeIds?: string[];
   resumeCatalogById?: Record<string, ResumeCatalogEntry>;
+  onRunAudit?: () => void;
+  canRunAudit?: boolean;
+  auditMenuLabel?: string;
   onHideJob?: (jobUrl?: string) => void;
   onHideCompany?: (companyName?: string) => void;
 }
@@ -37,24 +41,6 @@ function getSourceLabel(sourceUrl?: string): string {
   }
 }
 
-function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    return navigator.clipboard.writeText(text);
-  }
-  return new Promise((resolve, reject) => {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    ok ? resolve() : reject(new Error('execCommand copy failed'));
-  });
-}
-
 const JobTileDropdown: React.FC<JobTileDropdownProps> = ({
   job,
   resumeId,
@@ -62,13 +48,21 @@ const JobTileDropdown: React.FC<JobTileDropdownProps> = ({
   resumeDisplayName: uploadedResumeName,
   selectedResumeIds,
   resumeCatalogById,
+  onRunAudit,
+  canRunAudit,
+  auditMenuLabel,
   onHideJob,
   onHideCompany,
 }) => {
   const [open, setOpen] = useState(false);
+  const [deepResearchPopoverOpen, setDeepResearchPopoverOpen] = useState(false);
+  const [deepResearchPopoverTitle, setDeepResearchPopoverTitle] = useState('');
+  const [deepResearchPopoverText, setDeepResearchPopoverText] = useState('');
+  const [deepResearchCopyStatus, setDeepResearchCopyStatus] = useState('');
   const [deepResearchPromptStatus, setDeepResearchPromptStatus] = useState('');
   const [deepResearchJobStatus, setDeepResearchJobStatus] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const deepResearchTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +81,32 @@ const JobTileDropdown: React.FC<JobTileDropdownProps> = ({
   ) => {
     setter(message);
     setTimeout(() => setter(''), 2500);
+  };
+
+  const openDeepResearchPopover = (title: string, text: string) => {
+    setDeepResearchPopoverTitle(title);
+    setDeepResearchPopoverText(text);
+    setDeepResearchCopyStatus('');
+    setDeepResearchPopoverOpen(true);
+    window.setTimeout(() => {
+      deepResearchTextAreaRef.current?.focus();
+      deepResearchTextAreaRef.current?.select();
+    }, 0);
+  };
+
+  const handleCopyDeepResearchPopoverText = async () => {
+    if (!deepResearchPopoverText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(deepResearchPopoverText);
+      setDeepResearchCopyStatus('Copied to clipboard.');
+    } catch {
+      deepResearchTextAreaRef.current?.focus();
+      deepResearchTextAreaRef.current?.select();
+      setDeepResearchCopyStatus('Clipboard blocked. Press Cmd+C to copy.');
+    }
   };
 
   const handleCopyDeepResearchPrompt = async () => {
@@ -145,12 +165,8 @@ Please investigate the following and provide a structured report:
 
 Be direct and honest. Do not soften negative findings.`;
 
-    try {
-      await copyToClipboard(prompt);
-      showStatus(setDeepResearchPromptStatus, '✅ Copied!');
-    } catch {
-      showStatus(setDeepResearchPromptStatus, '❌ Copy failed');
-    }
+    openDeepResearchPopover('Deep Research AI Prompt', prompt);
+    showStatus(setDeepResearchPromptStatus, 'Opened');
     setOpen(false);
   };
 
@@ -259,12 +275,8 @@ ${resumeSection}
 
 Be specific, direct, and high quality. Treat this as a real application I intend to submit.`;
 
-    try {
-      await copyToClipboard(prompt);
-      showStatus(setDeepResearchJobStatus, '✅ Copied!');
-    } catch {
-      showStatus(setDeepResearchJobStatus, '❌ Copy failed');
-    }
+    openDeepResearchPopover('Deep Research AI Template', prompt);
+    showStatus(setDeepResearchJobStatus, 'Opened');
     setOpen(false);
   };
 
@@ -278,10 +290,19 @@ Be specific, direct, and high quality. Treat this as a real application I intend
     setOpen(false);
   };
 
+  const handleRunAudit = () => {
+    if (!canRunAudit) {
+      return;
+    }
+    onRunAudit?.();
+    setOpen(false);
+  };
+
   const companyName = job?.company_name?.trim() || 'this company';
 
   return (
-    <div className="job-tile-dropdown" ref={containerRef}>
+    <>
+      <div className="job-tile-dropdown" ref={containerRef}>
       <button
         className="job-tile-dropdown-trigger"
         onClick={() => setOpen((v) => !v)}
@@ -312,10 +333,21 @@ Be specific, direct, and high quality. Treat this as a real application I intend
             onClick={handleCopyDeepReseachJobTemplate}
           >
             <span className="dropdown-item-icon">🧰</span>
-            <span className="dropdown-item-label">Deep reseach job template</span>
+            <span className="dropdown-item-label">Deep Research AI Template</span>
             {deepResearchJobStatus && (
               <span className="dropdown-item-status">{deepResearchJobStatus}</span>
             )}
+          </button>
+
+          <button
+            className="job-tile-dropdown-item"
+            role="menuitem"
+            onClick={handleRunAudit}
+            disabled={!canRunAudit}
+            title={canRunAudit ? 'Run AI audit for this job' : 'Audit unavailable'}
+          >
+            <span className="dropdown-item-icon">🤖</span>
+            <span className="dropdown-item-label">{auditMenuLabel || 'Run audit'}</span>
           </button>
 
           <button
@@ -337,7 +369,44 @@ Be specific, direct, and high quality. Treat this as a real application I intend
           </button>
         </div>
       )}
-    </div>
+      </div>
+
+      <GenericPopover
+        isOpen={deepResearchPopoverOpen}
+        onClose={() => setDeepResearchPopoverOpen(false)}
+        title={deepResearchPopoverTitle}
+        className="audit-fullscreen-popover"
+        headerActions={(
+          <button type="button" className="open-corpus-btn" style={{ marginTop: 0 }} onClick={handleCopyDeepResearchPopoverText}>
+            Copy text
+          </button>
+        )}
+      >
+        <div style={{ paddingBottom: '10px', color: '#334155', fontSize: '0.92rem' }}>
+          Review the generated text below, then copy it into your AI tool.
+          {deepResearchCopyStatus ? <span style={{ marginLeft: '8px', color: '#0f766e', fontWeight: 600 }}>{deepResearchCopyStatus}</span> : null}
+        </div>
+        <textarea
+          ref={deepResearchTextAreaRef}
+          readOnly
+          spellCheck={false}
+          value={deepResearchPopoverText}
+          style={{
+            width: '100%',
+            minHeight: '60vh',
+            resize: 'vertical',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            padding: '12px',
+            fontFamily: "Menlo, Monaco, Consolas, 'Courier New', monospace",
+            fontSize: '12px',
+            lineHeight: 1.45,
+            color: '#0f172a',
+            background: '#f8fafc',
+          }}
+        />
+      </GenericPopover>
+    </>
   );
 };
 

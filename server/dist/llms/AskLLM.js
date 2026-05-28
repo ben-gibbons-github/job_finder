@@ -1,11 +1,13 @@
+import 'dotenv/config';
 import { getCachedAnswer, setCachedAnswer } from './LLMCache.js';
-// Set Gemini API key
-const GEMINI_API_KEY = 'AIzaSyCCoOU9qd8Yh0CgOZXZ3rtBrJzzopzA_to';
+// Read Gemini API key from environment.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_DELAY_MS = 1_000;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 1_500;
 const MAX_SERVER_HINT_COOLDOWN_MS = 5 * 60_000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 let requestQueueTail = Promise.resolve();
 let lastRequestStartedAt = 0;
 let cooldownUntil = 0;
@@ -169,7 +171,9 @@ export async function askGeminiWithSearch(questions, options = {}) {
         if (!answer) {
             throw new Error('Gemini returned an empty response.');
         }
-        console.log(`Gemini response for question "${question}": ${answer}`);
+        if (!IS_PRODUCTION) {
+            console.log(`Gemini response for question "${question}": ${answer}`);
+        }
         answers.push({ question, answer });
         await setCachedAnswer(question, answer);
         history.push({ role: 'model', parts: [{ text: answer }] });

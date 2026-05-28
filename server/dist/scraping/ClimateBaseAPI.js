@@ -3,7 +3,7 @@ const CLIMATEBASE_JOBS_URL = 'https://climatebase.org/jobs';
 const FETCH_TIMEOUT = 30000;
 const ALGOLIA_BROWSE_ENDPOINT = 'https://8psnffqtxq-dsn.algolia.net/1/indexes/Job_production/browse';
 const ALGOLIA_APP_ID = '8PSNFFQTXQ';
-const ALGOLIA_API_KEY = 'd2ebe27d3cc3d35fea04da7b1b0718a8';
+const ALGOLIA_API_KEY = process.env.CLIMATEBASE_ALGOLIA_API_KEY ?? '';
 const ALGOLIA_BROWSE_HITS_PER_PAGE = 1000;
 const MAX_BROWSE_REQUESTS = 500;
 const CLIMATEBASE_FACET_FILTERS = [
@@ -112,13 +112,7 @@ function normalizeJob(job) {
         impact_number: 0,
         audit_number: 0,
         audit_text: '',
-        tags: [...sectors, ...remotePrefs].filter((x) => Boolean(x)),
-        ai_summary: '',
-        ai_red_flag_summary: '',
-        ai_score: 0,
-        ai_red_flag_score: 0,
-        ai_impact_summary: '',
-        ai_impact_score: 0,
+        tags: [...sectors, ...remotePrefs].filter((x) => Boolean(x))
     };
 }
 async function fetchEmbeddedJobsFromPage() {
@@ -133,6 +127,9 @@ async function fetchEmbeddedJobsFromPage() {
     return extractJSONArrayByKey(html, 'jobs');
 }
 async function fetchAllClimatebaseJobsRaw() {
+    if (!ALGOLIA_API_KEY) {
+        throw new Error('Missing CLIMATEBASE_ALGOLIA_API_KEY');
+    }
     const deduped = new Map();
     let cursor;
     let requestCount = 0;

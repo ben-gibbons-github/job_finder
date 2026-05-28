@@ -6,6 +6,7 @@ interface GenericPopoverProps {
   title?: string;
   children: React.ReactNode;
   className?: string;
+  headerActions?: React.ReactNode;
 }
 
 const GenericPopover: React.FC<GenericPopoverProps> = ({
@@ -14,6 +15,7 @@ const GenericPopover: React.FC<GenericPopoverProps> = ({
   title,
   children,
   className,
+  headerActions,
 }) => {
   useEffect(() => {
     if (!isOpen) {
@@ -51,14 +53,17 @@ const GenericPopover: React.FC<GenericPopoverProps> = ({
       >
         <div className="generic-popover-header">
           <h2 className="generic-popover-title">{title || 'Details'}</h2>
-          <button
-            type="button"
-            className="generic-popover-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            Close
-          </button>
+          <div className="generic-popover-header-right">
+            {headerActions ? <div className="generic-popover-header-actions">{headerActions}</div> : null}
+            <button
+              type="button"
+              className="generic-popover-close"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              Close
+            </button>
+          </div>
         </div>
         <div className="generic-popover-content">{children}</div>
       </div>

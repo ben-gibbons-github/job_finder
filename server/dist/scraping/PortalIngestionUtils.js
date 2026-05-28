@@ -16,13 +16,7 @@ function toScrapedJob(source, job, lat, lon) {
         impact_number: 0,
         audit_number: 0,
         audit_text: '',
-        tags: Array.isArray(job.tags) ? job.tags.filter(Boolean) : [],
-        ai_summary: '',
-        ai_red_flag_summary: '',
-        ai_score: 0,
-        ai_red_flag_score: 0,
-        ai_impact_summary: '',
-        ai_impact_score: 0,
+        tags: Array.isArray(job.tags) ? job.tags.filter(Boolean) : []
     };
 }
 export function parseCsvEnv(value) {
