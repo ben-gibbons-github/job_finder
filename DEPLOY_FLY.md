@@ -32,6 +32,7 @@ fly volumes create cache_data --region iad --size 5
 fly secrets set \
   GEMINI_API_KEY=... \
   CLIENT_ORIGIN=https://<your-fly-app>.fly.dev \
+  CACHE_SEED_MODE=missing \
   CLIMATEBASE_ALGOLIA_API_KEY=... \
   ESCAPE_THE_CITY_ALGOLIA_API_KEY=... \
   EIGHTYK_HOURS_ALGOLIA_API_KEY=... \
@@ -76,3 +77,7 @@ Then open `https://<your-fly-app>.fly.dev` and verify:
 - Client socket URL uses `VITE_SERVER_URL` when provided, otherwise same-origin in production.
 - This deploy path uses same-origin, so no extra client env variable is required.
 - Cache data persists on mounted volume at `/app/server/cache`.
+- Cache seed files are bundled at `/app/server/cache_seed` from repo `server/cache` during image build.
+- `CACHE_SEED_MODE=missing` (recommended) only copies missing files from `cache_seed` to mounted cache volume.
+- `CACHE_SEED_MODE=overwrite` forces mounted cache files to refresh from git-uploaded seed caches at startup.
+- `CACHE_SEED_MODE=off` disables startup seeding.

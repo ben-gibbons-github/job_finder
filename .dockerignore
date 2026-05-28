@@ -6,10 +6,6 @@
 **/*.log
 
 # Local caches and large scraped artifacts
-server/cache
-server/server/cache
-server/src/scraping/output_files
-server/*.html
 server/build_output.txt
 
 # Local env files

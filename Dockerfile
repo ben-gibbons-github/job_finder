@@ -27,9 +27,10 @@ COPY server/package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=server-build /app/server/dist ./dist
+COPY --from=server-build /app/server/cache /app/server/cache_seed
 COPY --from=client-build /app/client/dist /app/client/dist
 
 RUN mkdir -p /app/server/cache
 
 EXPOSE 8080
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "if [ -d /app/server/cache_seed ]; then mkdir -p /app/server/cache && cp -rn /app/server/cache_seed/. /app/server/cache/; fi; node dist/index.js"]
