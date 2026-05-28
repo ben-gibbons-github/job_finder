@@ -27,6 +27,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production'
 const AUDIT_ALL_MAX_CONCURRENCY = Math.max(1, Number(process.env.AUDIT_ALL_MAX_CONCURRENCY ?? 4))
 const AUDIT_ALL_MAX_JOBS = Math.max(1, Number(process.env.AUDIT_ALL_MAX_JOBS ?? 250))
 const SHUTDOWN_TIMEOUT_MS = Math.max(1000, Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10000))
+const MEMORY_HEARTBEAT_MS = 5000
 
 // Global job list
 let JOBS: ScrapedJob[] = []
@@ -346,6 +347,18 @@ httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)
 })
 
+function bytesToMb(value: number): string {
+  return (value / (1024 * 1024)).toFixed(1)
+}
+
+const memoryHeartbeat = setInterval(() => {
+  const usage = process.memoryUsage()
+  console.log(
+    `[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB`,
+  )
+}, MEMORY_HEARTBEAT_MS)
+memoryHeartbeat.unref()
+
 let shuttingDown = false
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -355,6 +368,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   shuttingDown = true
   console.log(`Received ${signal}. Starting graceful shutdown...`)
+  clearInterval(memoryHeartbeat)
 
   const timeout = setTimeout(() => {
     console.error(`Forced shutdown after ${SHUTDOWN_TIMEOUT_MS}ms timeout.`)

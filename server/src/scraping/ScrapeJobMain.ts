@@ -93,6 +93,14 @@ interface ScraperComponent {
   scrapeJobs: () => Promise<ScrapedJob[]>;
 }
 
+const SCRAPE_JOBS_ON_PRODUCTION = false;
+const SCRAPE_JOBS_ON_DEV = false;
+
+function shouldScrapeInCurrentEnv(): boolean {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return isProduction ? SCRAPE_JOBS_ON_PRODUCTION : SCRAPE_JOBS_ON_DEV;
+}
+
 function normalizeEmployerName(name: string | undefined | null): string {
   return String(name ?? '').trim().toLowerCase();
 }
@@ -409,6 +417,21 @@ const SCRAPER_COMPONENTS: ScraperComponent[] = [
 ];
 
 async function loadComponentJobs(component: ScraperComponent): Promise<ScrapedJob[]> {
+  if (!shouldScrapeInCurrentEnv()) {
+    const cachedJobs = await readAnyCache(component.name);
+    if (cachedJobs) {
+      console.log(
+        `Scraping disabled for current environment. Loaded ${cachedJobs.length} cached jobs for ${component.name}`
+      );
+      return cachedJobs;
+    }
+
+    console.warn(
+      `Scraping disabled for current environment and no cache found for ${component.name}. Returning 0 jobs.`
+    );
+    return [];
+  }
+
   const cachedJobs = await readFreshCache(component.name);
 
   if (cachedJobs) {
