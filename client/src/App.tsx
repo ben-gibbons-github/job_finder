@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { io } from 'socket.io-client'
 import './App.css'
 import JobTile from './JobTile'
 import Pagination from './Pagination'
@@ -13,6 +12,7 @@ import GlobalAIButton from './GlobalAIButton'
 import { type JobDistributionMeta } from './JobDistributionGraph'
 import SearchLoadingBar from './SearchLoadingBar'
 import InsightsHoverPopovers from './InsightsHoverPopovers'
+import { socket } from './socket'
 
 type SearchCommand = 'AIAuditAllJobsInThisSearch'
 
@@ -28,7 +28,6 @@ interface ClientSearchPayload {
   command?: SearchCommand
 }
 
-const socket = io('http://localhost:4000')
 const HIDDEN_JOBS_CACHE_KEY = 'hiddenJobsByUrl'
 const HIDDEN_COMPANIES_CACHE_KEY = 'hiddenCompaniesByName'
 

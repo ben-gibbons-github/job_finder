@@ -105,8 +105,7 @@
   },
   "san mateo county, california, united states": {
     "lat": 29.4241,
-    "lon": -98.4936,
-    "isHardcoded": true
+    "lon": -98.4936
   },
   "redcar": {
     "lat": 54.61657,
@@ -1631,5 +1630,21 @@
   "thames gateway": {
     "lat": 51.440063,
     "lon": 0.3090253
+  },
+  "se17,  london": {
+    "lat": 51.4857685,
+    "lon": -0.0892221
+  },
+  "se11,  london": {
+    "lat": 51.4874958,
+    "lon": -0.121228
+  },
+  "n4,  london": {
+    "lat": 51.5637663,
+    "lon": -0.1036784
+  },
+  "london": {
+    "lat": 51.5074,
+    "lon": -0.1278
   }
 }

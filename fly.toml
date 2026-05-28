@@ -1,0 +1,29 @@
+app = "job-finder-super"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  CLIENT_DIST_DIR = "/app/client/dist"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = "stop"
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "40s"
+  method = "GET"
+  path = "/api/hello"
+
+[[mounts]]
+  source = "cache_data"
+  destination = "/app/server/cache"

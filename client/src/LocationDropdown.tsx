@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
+import { socket } from './socket';
 
 interface LocationOption {
   value: string;
@@ -16,8 +16,6 @@ interface LocationDropdownProps {
   placeholder?: string;
   className?: string;
 }
-
-const socket = io('http://localhost:4000');
 
 const LocationDropdown: React.FC<LocationDropdownProps> = ({
   onSelectLocation,

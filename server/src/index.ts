@@ -1,5 +1,7 @@
 import 'dotenv/config'
 
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import cors from 'cors'
 import express from 'express'
 import { createServer } from 'http'
@@ -44,6 +46,7 @@ const top100Search = new Top100Search(searchMain)
 
 const PORT = Number(process.env.PORT) || 4000
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3010'
+const CLIENT_DIST_DIR = process.env.CLIENT_DIST_DIR || path.resolve(process.cwd(), '../client/dist')
 
 const app = express()
 
@@ -52,6 +55,14 @@ app.use(cors({ origin: CLIENT_ORIGIN }))
 app.get('/api/hello', (_req, res) => {
   res.json({ message: 'Hello from Express + Socket.IO server!' })
 })
+
+if (existsSync(CLIENT_DIST_DIR)) {
+  app.use(express.static(CLIENT_DIST_DIR))
+
+  app.get(/^(?!\/api|\/socket\.io).*/, (_req, res) => {
+    res.sendFile(path.join(CLIENT_DIST_DIR, 'index.html'))
+  })
+}
 
 const httpServer = createServer(app)
 
