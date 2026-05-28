@@ -1,6 +1,6 @@
 import 'dotenv/config'
 
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import cors from 'cors'
 import express from 'express'
@@ -36,6 +36,18 @@ const top100Search = new Top100Search(searchMain)
 
 ;(async () => {
   try {
+    // Log cache directory contents for startup verification
+    const cacheDir = path.resolve(import.meta.dirname, '../../cache')
+    if (existsSync(cacheDir)) {
+      const files = readdirSync(cacheDir)
+      const totalBytes = files.reduce((sum, f) => {
+        try { return sum + statSync(path.join(cacheDir, f)).size } catch { return sum }
+      }, 0)
+      console.log(`[Cache] ${cacheDir} — ${files.length} file(s), ${(totalBytes / 1_048_576).toFixed(1)} MB`)
+    } else {
+      console.warn(`[Cache] Directory not found: ${cacheDir}`)
+    }
+
     JOBS = await scrapeJobsMain()
     console.log(`Loaded ${JOBS.length} jobs at startup.`)
     const cached = await top100Search.refresh(JOBS)
