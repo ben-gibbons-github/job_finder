@@ -1,4 +1,7 @@
 import ClimateBaseScraper from './ClimateBase.js';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import GreenhouseScraper from './Greenhouse.js';
 import LeverScraper from './Lever.js';
 import AshbyScraper from './Ashby.js';
@@ -149,6 +152,47 @@ function logScraperEnvDiagnostics(): void {
   ];
 
   console.log(`[ScrapeEnv] ${diagnostics.join(' | ')}`);
+}
+
+async function probeClimateBaseCacheLoad(): Promise<void> {
+  const startedAt = Date.now();
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const cachePath = path.resolve(moduleDir, '../../cache/ClimateBase.json');
+
+  console.log(`[ClimateBaseCacheProbe] Start. cachePath=${cachePath}`);
+
+  try {
+    const stat = await fs.stat(cachePath);
+    console.log(
+      `[ClimateBaseCacheProbe] File found. sizeBytes=${stat.size} modifiedAt=${new Date(stat.mtimeMs).toISOString()}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[ClimateBaseCacheProbe] File stat failed: ${message}`);
+    console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
+    return;
+  }
+
+  try {
+    console.log('[ClimateBaseCacheProbe] Attempting readAnyCache("ClimateBase")...');
+    const cachedJobs = await readAnyCache('ClimateBase');
+
+    if (!cachedJobs) {
+      console.warn('[ClimateBaseCacheProbe] readAnyCache returned null (missing, invalid, or empty cache).');
+      console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
+      return;
+    }
+
+    const sample = cachedJobs[0];
+    console.log(
+      `[ClimateBaseCacheProbe] Success. loadedJobs=${cachedJobs.length} sampleSourceUrl=${sample?.source_url ?? 'n/a'} sampleCompany=${sample?.company_name ?? 'n/a'}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[ClimateBaseCacheProbe] Cache read threw error: ${message}`);
+  }
+
+  console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
 }
 
 const SCRAPER_COMPONENTS: ScraperComponent[] = [
@@ -514,6 +558,7 @@ export async function scrapeJobsMain() {
   logScraperEnvDiagnostics();
 
   await ensureCacheDir();
+  await probeClimateBaseCacheLoad();
 
   for (const component of SCRAPER_COMPONENTS) {
     const componentJobs = await loadComponentJobs(component);
