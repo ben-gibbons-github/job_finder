@@ -385,9 +385,9 @@ function summarizeJobsBySource(jobs: ScrapedJob[]): { totalJobs: number; sourceS
 const memoryHeartbeat = setInterval(() => {
   const usage = process.memoryUsage()
   const jobSummary = summarizeJobsBySource(JOBS)
-  console.log(
-    `[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB totalJobs=${jobSummary.totalJobs} sources={${jobSummary.sourceSummary}}`,
-  )
+  // console.log(
+  //   `[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB totalJobs=${jobSummary.totalJobs} sources={${jobSummary.sourceSummary}}`,
+  // )
 }, MEMORY_HEARTBEAT_MS)
 memoryHeartbeat.unref()
 

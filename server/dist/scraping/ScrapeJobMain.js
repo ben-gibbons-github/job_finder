@@ -1,7 +1,4 @@
 import ClimateBaseScraper from './ClimateBase.js';
-import path from 'node:path';
-import { promises as fs } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import GreenhouseScraper from './Greenhouse.js';
 import LeverScraper from './Lever.js';
 import AshbyScraper from './Ashby.js';
@@ -94,6 +91,38 @@ function shouldScrapeInCurrentEnv() {
 function normalizeEmployerName(name) {
     return String(name ?? '').trim().toLowerCase();
 }
+function logClimateBaseCacheDiagnostics(cachedJobs) {
+    const climateBaseJobs = cachedJobs.filter((job) => job.source === 'ClimateBase');
+    const uniqueSourceUrls = new Set();
+    const uniqueCompanies = new Set();
+    for (const job of climateBaseJobs) {
+        const sourceUrl = String(job.source_url ?? '').trim();
+        const companyName = String(job.company_name ?? '').trim().toLowerCase();
+        if (sourceUrl) {
+            uniqueSourceUrls.add(sourceUrl);
+        }
+        if (companyName) {
+            uniqueCompanies.add(companyName);
+        }
+    }
+    const formatJob = (job) => {
+        const title = String(job.name ?? 'Unknown Role').trim() || 'Unknown Role';
+        const company = String(job.company_name ?? 'Unknown Company').trim() || 'Unknown Company';
+        const location = String(job.location ?? 'Unknown Location').trim() || 'Unknown Location';
+        const sourceUrl = String(job.source_url ?? '').trim() || 'no-source-url';
+        return `${title} | ${company} | ${location} | ${sourceUrl}`;
+    };
+    const firstSamples = climateBaseJobs.slice(0, 3).map(formatJob);
+    const lastSamples = climateBaseJobs.slice(-3).map(formatJob);
+    console.log([
+        '[ClimateBaseCache]',
+        `jobs=${climateBaseJobs.length}`,
+        `uniqueSourceUrls=${uniqueSourceUrls.size}`,
+        `uniqueCompanies=${uniqueCompanies.size}`,
+        `first=[${firstSamples.join(' || ') || 'none'}]`,
+        `last=[${lastSamples.join(' || ') || 'none'}]`,
+    ].join(' '));
+}
 function summarizeCsvEnv(name, fallbackValues = []) {
     const rawValue = process.env[name];
     const parsedValues = (rawValue || '')
@@ -128,38 +157,6 @@ function logScraperEnvDiagnostics() {
         summarizeCsvEnv('LEVER_BOARDS', ['palantir']),
     ];
     console.log(`[ScrapeEnv] ${diagnostics.join(' | ')}`);
-}
-async function probeClimateBaseCacheLoad() {
-    const startedAt = Date.now();
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    const cachePath = path.resolve(moduleDir, '../../cache/ClimateBase.json');
-    console.log(`[ClimateBaseCacheProbe] Start. cachePath=${cachePath}`);
-    try {
-        const stat = await fs.stat(cachePath);
-        console.log(`[ClimateBaseCacheProbe] File found. sizeBytes=${stat.size} modifiedAt=${new Date(stat.mtimeMs).toISOString()}`);
-    }
-    catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[ClimateBaseCacheProbe] File stat failed: ${message}`);
-        console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
-        return;
-    }
-    try {
-        console.log('[ClimateBaseCacheProbe] Attempting readAnyCache("ClimateBase")...');
-        const cachedJobs = await readAnyCache('ClimateBase');
-        if (!cachedJobs) {
-            console.warn('[ClimateBaseCacheProbe] readAnyCache returned null (missing, invalid, or empty cache).');
-            console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
-            return;
-        }
-        const sample = cachedJobs[0];
-        console.log(`[ClimateBaseCacheProbe] Success. loadedJobs=${cachedJobs.length} sampleSourceUrl=${sample?.source_url ?? 'n/a'} sampleCompany=${sample?.company_name ?? 'n/a'}`);
-    }
-    catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[ClimateBaseCacheProbe] Cache read threw error: ${message}`);
-    }
-    console.log(`[ClimateBaseCacheProbe] End. durationMs=${Date.now() - startedAt}`);
 }
 const SCRAPER_COMPONENTS = [
     {
@@ -476,6 +473,9 @@ async function loadComponentJobs(component) {
         const cachedJobs = await readAnyCache(component.name);
         if (cachedJobs) {
             console.log(`Scraping disabled for current environment. Loaded ${cachedJobs.length} cached jobs for ${component.name}`);
+            if (component.name === 'ClimateBase') {
+                logClimateBaseCacheDiagnostics(cachedJobs);
+            }
             return cachedJobs;
         }
         console.warn(`Scraping disabled for current environment and no cache found for ${component.name}. Returning 0 jobs.`);
@@ -505,7 +505,6 @@ export async function scrapeJobsMain() {
     console.log('Starting job scraping...');
     logScraperEnvDiagnostics();
     await ensureCacheDir();
-    await probeClimateBaseCacheLoad();
     for (const component of SCRAPER_COMPONENTS) {
         const componentJobs = await loadComponentJobs(component);
         jobs.push(...componentJobs);
