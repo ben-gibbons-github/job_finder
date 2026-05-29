@@ -305,9 +305,25 @@ httpServer.listen(PORT, () => {
 function bytesToMb(value) {
     return (value / (1024 * 1024)).toFixed(1);
 }
+function summarizeJobsBySource(jobs) {
+    const counts = new Map();
+    for (const job of jobs) {
+        const source = String(job.source ?? 'Unknown').trim() || 'Unknown';
+        counts.set(source, (counts.get(source) ?? 0) + 1);
+    }
+    const sourceSummary = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([source, count]) => `${source}=${count}`)
+        .join(', ');
+    return {
+        totalJobs: jobs.length,
+        sourceSummary,
+    };
+}
 const memoryHeartbeat = setInterval(() => {
     const usage = process.memoryUsage();
-    console.log(`[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB`);
+    const jobSummary = summarizeJobsBySource(JOBS);
+    console.log(`[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB totalJobs=${jobSummary.totalJobs} sources={${jobSummary.sourceSummary}}`);
 }, MEMORY_HEARTBEAT_MS);
 memoryHeartbeat.unref();
 let shuttingDown = false;

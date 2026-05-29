@@ -79,8 +79,8 @@ import scrapedEmployerCache from './ScrapedEmployerCache.js';
 import { gatherLegacyAIData } from './GatherLegacyAIData.js';
 import { startBackgroundGeocodeJobs } from '../utils/BackgroundGeocode.js';
 import { ensureCacheDir, readAnyCache, readFreshCache, writeCache, } from './ScrapingCache.js';
-const SCRAPE_JOBS_ON_PRODUCTION = true;
-const SCRAPE_JOBS_ON_DEV = true;
+const SCRAPE_JOBS_ON_PRODUCTION = false;
+const SCRAPE_JOBS_ON_DEV = false;
 function shouldRunBackgroundGeocodeInCurrentEnv() {
     return process.env.NODE_ENV !== 'production';
 }
