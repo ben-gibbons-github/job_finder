@@ -11,6 +11,7 @@ primary_region = 'dfw'
 
 [env]
   CLIENT_DIST_DIR = '/app/client/dist'
+  CACHE_SEED_MODE = 'overwrite'
   NODE_ENV = 'production'
   PORT = '8080'
 

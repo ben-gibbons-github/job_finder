@@ -33,4 +33,4 @@ COPY --from=client-build /app/client/dist /app/client/dist
 RUN mkdir -p /app/server/cache
 
 EXPOSE 8080
-CMD ["sh", "-c", "if [ -d /app/server/cache_seed ]; then mkdir -p /app/server/cache; COPIED=0; for f in /app/server/cache_seed/*; do name=$(basename \"$f\"); if [ ! -f \"/app/server/cache/$name\" ]; then cp \"$f\" \"/app/server/cache/$name\" && COPIED=$((COPIED+1)); fi; done; echo \"[Startup] Seeded /app/server/cache: $COPIED new file(s) copied\"; else echo '[Startup] WARNING: cache_seed dir missing from image'; fi; exec node dist/index.js"]
+CMD ["sh", "-c", "if [ -d /app/server/cache_seed ]; then mkdir -p /app/server/cache; find /app/server/cache -mindepth 1 -maxdepth 1 -exec rm -rf {} +; COPIED=0; for f in /app/server/cache_seed/*; do [ -e \"$f\" ] || continue; name=$(basename \"$f\"); cp \"$f\" \"/app/server/cache/$name\" && COPIED=$((COPIED+1)); done; echo \"[Startup] Overwrote /app/server/cache from cache_seed ($COPIED files copied)\"; else echo '[Startup] WARNING: cache_seed dir missing from image'; fi; exec node dist/index.js"]

@@ -32,7 +32,7 @@ fly volumes create cache_data --region iad --size 5
 fly secrets set \
   GEMINI_API_KEY=... \
   CLIENT_ORIGIN=https://<your-fly-app>.fly.dev \
-  CACHE_SEED_MODE=missing \
+  CACHE_SEED_MODE=overwrite \
   CLIMATEBASE_ALGOLIA_API_KEY=... \
   ESCAPE_THE_CITY_ALGOLIA_API_KEY=... \
   EIGHTYK_HOURS_ALGOLIA_API_KEY=... \
@@ -82,7 +82,7 @@ Then open `https://<your-fly-app>.fly.dev` and verify:
 - This deploy path uses same-origin, so no extra client env variable is required.
 - Cache data persists on mounted volume at `/app/server/cache`.
 - Cache seed files are bundled at `/app/server/cache_seed` from repo `server/cache` during image build.
-- `CACHE_SEED_MODE=missing` (recommended) only copies missing files from `cache_seed` to mounted cache volume.
-- `CACHE_SEED_MODE=overwrite` forces mounted cache files to refresh from git-uploaded seed caches at startup.
+- `CACHE_SEED_MODE=overwrite` refreshes mounted cache files from git-uploaded seed caches at startup.
+- `CACHE_SEED_MODE=missing` only copies missing files from `cache_seed` to mounted cache volume.
 - `CACHE_SEED_MODE=off` disables startup seeding.
 - `ASHBY_FEED_ENDPOINTS`, `ASHBY_ORGS`, `GREENHOUSE_BOARDS`, and `LEVER_BOARDS` control how many boards/orgs are ingested; if omitted, the app falls back to tiny default sets.
