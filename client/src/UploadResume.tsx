@@ -5,6 +5,7 @@ interface UploadResumeProps {
   resumeText: string
   onResumeUpload: (file: File) => void
   isEnabled: boolean
+  highlight?: boolean
 }
 
 function buildResumePreview(resumeText: string): string {
@@ -17,6 +18,7 @@ export default function UploadResume({
   resumeText,
   onResumeUpload,
   isEnabled,
+  highlight = false,
 }: UploadResumeProps) {
   const [isHovered, setIsHovered] = useState(false)
   const previewText = buildResumePreview(resumeText)
@@ -32,7 +34,7 @@ export default function UploadResume({
 
   return (
     <div
-      className={`compact-search-bar__resume app-resume-upload ${isEnabled ? '' : 'compact-search-bar__resume--disabled'}`.trim()}
+      className={['compact-search-bar__resume', 'app-resume-upload', !isEnabled ? 'compact-search-bar__resume--disabled' : '', highlight ? 'compact-search-bar__resume--highlight' : ''].filter(Boolean).join(' ')}
       onMouseEnter={() => {
         if (isEnabled) {
           setIsHovered(true)

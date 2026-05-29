@@ -4,6 +4,7 @@ export type RateLimitEventName =
   | 'client:hello'
   | 'search'
   | 'search:auditAll'
+  | 'search:suggestions'
   | 'locations:search'
   | 'job:audit'
 
@@ -29,6 +30,10 @@ const SOCKET_RATE_LIMITS: Record<RateLimitEventName, LeakyBucketConfig> = {
   'search:auditAll': {
     capacity: Number(process.env.SOCKET_RATE_LIMIT_AUDIT_ALL_CAPACITY ?? 2),
     leakPerSecond: Number(process.env.SOCKET_RATE_LIMIT_AUDIT_ALL_LEAK_PER_SECOND ?? 0.03),
+  },
+  'search:suggestions': {
+    capacity: Number(process.env.SOCKET_RATE_LIMIT_SUGGESTIONS_CAPACITY ?? 30),
+    leakPerSecond: Number(process.env.SOCKET_RATE_LIMIT_SUGGESTIONS_LEAK_PER_SECOND ?? 4),
   },
   'locations:search': {
     capacity: Number(process.env.SOCKET_RATE_LIMIT_LOCATION_CAPACITY ?? 25),

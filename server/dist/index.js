@@ -6,7 +6,8 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { scrapeJobsMain } from './scraping/ScrapeJobMain.js';
-import { searchLocationsOpenStreetMap } from './searching/LocationSearch.js';
+import { reverseGeocodeOpenStreetMap, searchLocationsOpenStreetMap, } from './searching/LocationSearch.js';
+import { getSearchSuggestionCount, getSearchSuggestions, rebuildSearchSuggestions } from './searching/SearchSuggestion.js';
 import SearchMain from './searching/SearchMain.js';
 import { Top100Search } from './searching/Top100Search.js';
 import { auditJobAsync } from './searching/SearchAudit.js';
@@ -44,6 +45,8 @@ const top100Search = new Top100Search(searchMain);
         }
         JOBS = await scrapeJobsMain();
         console.log(`Loaded ${JOBS.length} jobs at startup.`);
+        rebuildSearchSuggestions(JOBS);
+        console.log(`Built search suggestion index with ${getSearchSuggestionCount()} unique terms.`);
         const cached = await top100Search.refresh(JOBS);
         console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
     }
@@ -212,6 +215,31 @@ io.on('connection', (socket) => {
             socket.emit('search:results', errorResponse);
         }
     });
+    socket.on('search:suggestions', (payload, callback) => {
+        if (!consumeLeakyBucket(socket.id, 'search:suggestions')) {
+            emitRateLimitError(socket, 'search:suggestions');
+            callbackRateLimitError(callback, {
+                suggestions: [],
+                error: 'Rate limit exceeded for search suggestions',
+            });
+            return;
+        }
+        const query = String(payload?.query ?? '').trim();
+        const limit = Math.max(1, Math.min(15, Number(payload?.limit ?? 8)));
+        if (query.length < 2) {
+            callback?.({ suggestions: [] });
+            return;
+        }
+        try {
+            const suggestions = getSearchSuggestions(query, limit);
+            callback?.({ suggestions });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Search suggestion failed for "${query}": ${message}`);
+            callback?.({ suggestions: [], error: 'Failed to load suggestions' });
+        }
+    });
     socket.on('locations:search', async (payload, callback) => {
         if (!consumeLeakyBucket(socket.id, 'locations:search')) {
             emitRateLimitError(socket, 'locations:search');
@@ -234,6 +262,31 @@ io.on('connection', (socket) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Location search failed for "${query}": ${message}`);
             callback?.({ options: [], error: 'Failed to search locations' });
+        }
+    });
+    socket.on('locations:reverse', async (payload, callback) => {
+        if (!consumeLeakyBucket(socket.id, 'locations:reverse')) {
+            emitRateLimitError(socket, 'locations:reverse');
+            callbackRateLimitError(callback, {
+                option: null,
+                error: 'Rate limit exceeded for reverse location lookup',
+            });
+            return;
+        }
+        const lat = Number(payload?.lat);
+        const lng = Number(payload?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            callback?.({ option: null, error: 'Invalid coordinates' });
+            return;
+        }
+        try {
+            const option = await reverseGeocodeOpenStreetMap(lat, lng);
+            callback?.({ option });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Reverse location lookup failed for ${lat},${lng}: ${message}`);
+            callback?.({ option: null, error: 'Failed to reverse geocode location' });
         }
     });
     socket.on('disconnect', () => {
@@ -323,7 +376,9 @@ function summarizeJobsBySource(jobs) {
 const memoryHeartbeat = setInterval(() => {
     const usage = process.memoryUsage();
     const jobSummary = summarizeJobsBySource(JOBS);
-    console.log(`[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB totalJobs=${jobSummary.totalJobs} sources={${jobSummary.sourceSummary}}`);
+    // console.log(
+    //   `[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB totalJobs=${jobSummary.totalJobs} sources={${jobSummary.sourceSummary}}`,
+    // )
 }, MEMORY_HEARTBEAT_MS);
 memoryHeartbeat.unref();
 let shuttingDown = false;

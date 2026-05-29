@@ -258,10 +258,11 @@ function App() {
   })
 
   const hasVisibleResults = visibleJobs.length > 0
+  const hasTextQuery = query.trim().length > 0
 
   return (
     <main className="app">
-      <h1>Super Job Search</h1>
+      <h1 className="app-title">AI Job Search</h1>
       <InsightsHoverPopovers
         searchMeta={searchMeta}
         scoreWeights={scoreWeights}
@@ -269,6 +270,7 @@ function App() {
         onOpenAiCorpus={() => setOpenAiCorpusSignal((value) => value + 1)}
         onRunAuditAllInSearch={handleRunAuditAllInSearch}
         isEnabled={hasVisibleResults}
+        hasSearched={hasTextQuery}
       />
 
       <GlobalAIButton
@@ -282,17 +284,21 @@ function App() {
       <BulkAuditButton showButton={false} />
 
       <section
-        className="compact-search-bar compact-search-bar--expanded"
+        className={`compact-search-bar compact-search-bar--expanded${!hasTextQuery ? ' compact-search-bar--needs-text' : ''}`}
         aria-label="Primary search controls"
       >
         <div className="compact-search-bar__text">
-          <SearchTextEntry onSearch={handleTextSearch} resultCount={totalItems} />
+          <SearchTextEntry onSearch={handleTextSearch} resultCount={totalItems} highlight={!hasTextQuery} />
         </div>
 
-        <div className={`compact-search-bar__location ${hasVisibleResults ? '' : 'compact-search-bar__location--disabled'}`.trim()}>
+        <div className={[
+          'compact-search-bar__location',
+          !hasTextQuery ? 'compact-search-bar__location--disabled' : '',
+          hasTextQuery && !locationText ? 'compact-search-bar__location--highlight' : '',
+        ].filter(Boolean).join(' ')}>
           <LocationDropdown
             onSelectLocation={(location) => setLocationText(location.displayLabel)}
-            placeholder={hasVisibleResults ? 'Location' : 'Location (disabled until results load)'}
+            placeholder={hasTextQuery ? 'Location' : 'Search first...'}
           />
         </div>
 
@@ -300,7 +306,8 @@ function App() {
           uploadedResumeName={uploadedResumeName}
           resumeText={resumeText}
           onResumeUpload={onResumeUpload}
-          isEnabled={hasVisibleResults}
+          isEnabled={hasTextQuery}
+          highlight={hasTextQuery && !resumeText}
         />
       </section>
 

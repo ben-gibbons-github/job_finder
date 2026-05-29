@@ -91,38 +91,6 @@ function shouldScrapeInCurrentEnv() {
 function normalizeEmployerName(name) {
     return String(name ?? '').trim().toLowerCase();
 }
-function logClimateBaseCacheDiagnostics(cachedJobs) {
-    const climateBaseJobs = cachedJobs.filter((job) => job.source === 'ClimateBase');
-    const uniqueSourceUrls = new Set();
-    const uniqueCompanies = new Set();
-    for (const job of climateBaseJobs) {
-        const sourceUrl = String(job.source_url ?? '').trim();
-        const companyName = String(job.company_name ?? '').trim().toLowerCase();
-        if (sourceUrl) {
-            uniqueSourceUrls.add(sourceUrl);
-        }
-        if (companyName) {
-            uniqueCompanies.add(companyName);
-        }
-    }
-    const formatJob = (job) => {
-        const title = String(job.name ?? 'Unknown Role').trim() || 'Unknown Role';
-        const company = String(job.company_name ?? 'Unknown Company').trim() || 'Unknown Company';
-        const location = String(job.location ?? 'Unknown Location').trim() || 'Unknown Location';
-        const sourceUrl = String(job.source_url ?? '').trim() || 'no-source-url';
-        return `${title} | ${company} | ${location} | ${sourceUrl}`;
-    };
-    const firstSamples = climateBaseJobs.slice(0, 3).map(formatJob);
-    const lastSamples = climateBaseJobs.slice(-3).map(formatJob);
-    console.log([
-        '[ClimateBaseCache]',
-        `jobs=${climateBaseJobs.length}`,
-        `uniqueSourceUrls=${uniqueSourceUrls.size}`,
-        `uniqueCompanies=${uniqueCompanies.size}`,
-        `first=[${firstSamples.join(' || ') || 'none'}]`,
-        `last=[${lastSamples.join(' || ') || 'none'}]`,
-    ].join(' '));
-}
 function summarizeCsvEnv(name, fallbackValues = []) {
     const rawValue = process.env[name];
     const parsedValues = (rawValue || '')
@@ -473,9 +441,6 @@ async function loadComponentJobs(component) {
         const cachedJobs = await readAnyCache(component.name);
         if (cachedJobs) {
             console.log(`Scraping disabled for current environment. Loaded ${cachedJobs.length} cached jobs for ${component.name}`);
-            if (component.name === 'ClimateBase') {
-                logClimateBaseCacheDiagnostics(cachedJobs);
-            }
             return cachedJobs;
         }
         console.warn(`Scraping disabled for current environment and no cache found for ${component.name}. Returning 0 jobs.`);

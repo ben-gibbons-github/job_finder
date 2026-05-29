@@ -11,32 +11,97 @@ export interface LocationOption {
   lng: number
 }
 
-export async function searchLocationsOpenStreetMap(query: string): Promise<LocationOption[]> {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (normalizedQuery.length < 2) {
-    return []
+const LOCATION_RESULT_LIMIT = 8
+const REQUEST_TIMEOUT_MS = 5000
+
+interface ParsedPostalQuery {
+  countryCode: string
+  postalCode: string
+}
+
+function toLocationOption(parts: {
+  city: string
+  state?: string
+  country?: string
+  lat: number
+  lng: number
+}): LocationOption {
+  const city = String(parts.city ?? '').trim()
+  const state = String(parts.state ?? '').trim() || undefined
+  const country = String(parts.country ?? '').trim() || undefined
+  const lat = Number(parts.lat)
+  const lng = Number(parts.lng)
+
+  return {
+    value: `${city}|${lat}|${lng}`,
+    label: city,
+    country,
+    state,
+    displayLabel: [city, state, country].filter(Boolean).join(', '),
+    lat,
+    lng,
+  }
+}
+
+function dedupeAndLimit(options: LocationOption[], limit = LOCATION_RESULT_LIMIT): LocationOption[] {
+  const deduped: LocationOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of options) {
+    const key = `${option.displayLabel.toLowerCase()}|${option.lat.toFixed(4)}|${option.lng.toFixed(4)}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    deduped.push(option)
+    if (deduped.length >= limit) {
+      break
+    }
   }
 
-  const cached = await getCachedLocationSearch(normalizedQuery)
-  if (cached) {
-    return cached
+  return deduped
+}
+
+function parsePostalQuery(query: string): ParsedPostalQuery | null {
+  const trimmed = query.trim().toUpperCase()
+  if (!trimmed) {
+    return null
   }
 
+  const usZip = /^(\d{5})(?:-\d{4})?$/
+  if (usZip.test(trimmed)) {
+    return { countryCode: 'US', postalCode: trimmed }
+  }
+
+  const prefixCountry = trimmed.match(/^([A-Z]{2})[\s-]+([A-Z0-9][A-Z0-9\s-]{1,9})$/)
+  if (prefixCountry) {
+    return { countryCode: prefixCountry[1], postalCode: prefixCountry[2].trim() }
+  }
+
+  const suffixCountry = trimmed.match(/^([A-Z0-9][A-Z0-9\s-]{1,9})[\s,]+([A-Z]{2})$/)
+  if (suffixCountry) {
+    return { countryCode: suffixCountry[2], postalCode: suffixCountry[1].trim() }
+  }
+
+  return null
+}
+
+async function fetchFromOpenStreetMap(query: string): Promise<LocationOption[]> {
   const response = await axios.get('https://nominatim.openstreetmap.org/search', {
     params: {
       q: query,
       format: 'jsonv2',
       addressdetails: 1,
-      limit: 8,
+      limit: LOCATION_RESULT_LIMIT,
     },
     headers: {
       'User-Agent': 'JobFinder/1.0 (location-autocomplete)',
     },
+    timeout: REQUEST_TIMEOUT_MS,
   })
 
   const rawResults = Array.isArray(response.data) ? response.data : []
-
-  const mapped = rawResults
+  return rawResults
     .map((item: any): LocationOption | null => {
       const city =
         item?.address?.city ||
@@ -55,22 +120,97 @@ export async function searchLocationsOpenStreetMap(query: string): Promise<Locat
         return null
       }
 
-      return {
-        value: `${city}|${lat}|${lng}`,
-        label: city,
-        country,
-        state,
-        displayLabel: [city, state, country].filter(Boolean).join(', '),
-        lat,
-        lng,
-      }
+      return toLocationOption({ city, state, country, lat, lng })
     })
     .filter((item: LocationOption | null): item is LocationOption => item !== null)
+}
 
-  const deduped: LocationOption[] = Array.from(
-    new Map(mapped.map((loc) => [loc.displayLabel.toLowerCase(), loc])).values()
+async function fetchFromOpenMeteo(query: string): Promise<LocationOption[]> {
+  const response = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
+    params: {
+      name: query,
+      count: LOCATION_RESULT_LIMIT,
+      language: 'en',
+      format: 'json',
+    },
+    timeout: REQUEST_TIMEOUT_MS,
+  })
+
+  const rawResults = Array.isArray(response.data?.results) ? response.data.results : []
+  return rawResults
+    .map((item: any): LocationOption | null => {
+      const city = String(item?.name ?? '').trim()
+      const state = String(item?.admin1 ?? '').trim() || undefined
+      const country = String(item?.country ?? '').trim() || undefined
+      const lat = Number(item?.latitude)
+      const lng = Number(item?.longitude)
+
+      if (!city || Number.isNaN(lat) || Number.isNaN(lng)) {
+        return null
+      }
+
+      return toLocationOption({ city, state, country, lat, lng })
+    })
+    .filter((item: LocationOption | null): item is LocationOption => item !== null)
+}
+
+async function fetchFromZippopotam(postalQuery: ParsedPostalQuery): Promise<LocationOption[]> {
+  const response = await axios.get(
+    `https://api.zippopotam.us/${encodeURIComponent(postalQuery.countryCode.toLowerCase())}/${encodeURIComponent(postalQuery.postalCode)}`,
+    {
+      timeout: REQUEST_TIMEOUT_MS,
+    }
   )
 
-  await setCachedLocationSearch(normalizedQuery, deduped)
+  const places = Array.isArray(response.data?.places) ? response.data.places : []
+  const country = String(response.data?.country ?? postalQuery.countryCode).trim()
+  return places
+    .map((place: any): LocationOption | null => {
+      const city = String(place?.['place name'] ?? '').trim()
+      const state =
+        String(place?.state ?? '').trim() ||
+        String(place?.['state abbreviation'] ?? '').trim() ||
+        undefined
+      const lat = Number.parseFloat(place?.latitude)
+      const lng = Number.parseFloat(place?.longitude)
+
+      if (!city || Number.isNaN(lat) || Number.isNaN(lng)) {
+        return null
+      }
+
+      return toLocationOption({ city, state, country, lat, lng })
+    })
+    .filter((item: LocationOption | null): item is LocationOption => item !== null)
+}
+
+export async function searchLocationsOpenStreetMap(query: string): Promise<LocationOption[]> {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (normalizedQuery.length < 2) {
+    return []
+  }
+
+  const cached = await getCachedLocationSearch(normalizedQuery)
+  if (cached) {
+    return cached
+  }
+
+  const providers: Promise<LocationOption[]>[] = []
+  const postalQuery = parsePostalQuery(query)
+
+  if (postalQuery) {
+    providers.push(fetchFromZippopotam(postalQuery).catch(() => []))
+  }
+
+  providers.push(fetchFromOpenStreetMap(query).catch(() => []))
+  providers.push(fetchFromOpenMeteo(query).catch(() => []))
+
+  const providerResults = await Promise.all(providers)
+  const merged = providerResults.flat()
+  const deduped = dedupeAndLimit(merged, LOCATION_RESULT_LIMIT)
+
+  if (deduped.length > 0) {
+    await setCachedLocationSearch(normalizedQuery, deduped)
+  }
+
   return deduped
 }

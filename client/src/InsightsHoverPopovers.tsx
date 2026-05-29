@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import JobDistributionGraph, { type JobDistributionMeta } from './JobDistributionGraph'
 import ScoreWeightSliders, { type ScoreWeights } from './ScoreWeightSliders'
 import { usePinnedHoverPopover } from './usePinnedHoverPopover'
@@ -10,6 +11,7 @@ interface InsightsHoverPopoversProps {
   onOpenAiCorpus: () => void
   onRunAuditAllInSearch: () => void
   isEnabled: boolean
+  hasSearched: boolean
 }
 
 export default function InsightsHoverPopovers({
@@ -19,7 +21,9 @@ export default function InsightsHoverPopovers({
   onOpenAiCorpus,
   onRunAuditAllInSearch,
   isEnabled,
+  hasSearched,
 }: InsightsHoverPopoversProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const {
     containerRef,
     visiblePopover,
@@ -28,12 +32,26 @@ export default function InsightsHoverPopovers({
   } = usePinnedHoverPopover()
 
   return (
-    <div
-      className={`app-insights-actions ${isEnabled ? '' : 'app-insights-actions--disabled'}`.trim()}
-      aria-label="Insights controls"
-      ref={containerRef}
-      onMouseLeave={clearHoverPopover}
-    >
+    <div className="advanced-options">
+      <div className="advanced-options__header">
+        <button
+          type="button"
+          className={`advanced-options__toggle ${hasSearched ? 'advanced-options__toggle--searched' : ''}`.trim()}
+          onClick={() => setIsExpanded((v) => !v)}
+          aria-expanded={isExpanded}
+        >
+          <span>Advanced options</span>
+          <span className={`advanced-options__chevron ${isExpanded ? 'advanced-options__chevron--open' : ''}`}>▾</span>
+        </button>
+      </div>
+
+      {isExpanded && (
+        <div
+          className={`app-insights-actions ${isEnabled ? '' : 'app-insights-actions--disabled'}`.trim()}
+          aria-label="Insights controls"
+          ref={containerRef}
+          onMouseLeave={clearHoverPopover}
+        >
       <div
         className="app-insights-actions__item"
         onMouseEnter={() => {
@@ -88,6 +106,8 @@ export default function InsightsHoverPopovers({
         onRunAuditAllInSearch={onRunAuditAllInSearch}
         isEnabled={isEnabled}
       />
+        </div>
+      )}
     </div>
   )
 }
