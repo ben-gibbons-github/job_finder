@@ -260,7 +260,7 @@ export async function geocodeJobLocations(jobs, shouldLog = false) {
         }
         return false;
     };
-    return Promise.all(jobs.map(async (job) => {
+    await Promise.all(jobs.map(async (job) => {
         let lat = job.location_lat;
         let lon = job.location_lon;
         // Check if coordinates are missing or invalid
@@ -270,7 +270,7 @@ export async function geocodeJobLocations(jobs, shouldLog = false) {
             isNaN(lon) ||
             (lat === 0 && lon === 0))) {
             if (shouldSkipGeocodeForJob(job)) {
-                return { ...job, location_lat: lat, location_lon: lon };
+                return;
             }
             const locationKey = normalizeLocationKey(job.location);
             try {
@@ -287,6 +287,8 @@ export async function geocodeJobLocations(jobs, shouldLog = false) {
                 // console.warn('Failed to geocode job location:', job.location, 'for job:', job.name, e)
             }
         }
-        return { ...job, location_lat: lat, location_lon: lon };
+        job.location_lat = lat;
+        job.location_lon = lon;
     }));
+    return jobs;
 }

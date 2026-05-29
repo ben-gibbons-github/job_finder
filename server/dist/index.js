@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import cors from 'cors';
 import express from 'express';
@@ -18,16 +18,39 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const AUDIT_ALL_MAX_CONCURRENCY = Math.max(1, Number(process.env.AUDIT_ALL_MAX_CONCURRENCY ?? 4));
 const AUDIT_ALL_MAX_JOBS = Math.max(1, Number(process.env.AUDIT_ALL_MAX_JOBS ?? 250));
 const SHUTDOWN_TIMEOUT_MS = Math.max(1000, Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10000));
+const MEMORY_HEARTBEAT_MS = 5000;
 // Global job list
 let JOBS = [];
 const searchMain = new SearchMain();
 const top100Search = new Top100Search(searchMain);
 (async () => {
     try {
+        // Log cache directory contents for startup verification
+        const cacheDir = path.resolve(import.meta.dirname, '../../cache');
+        if (existsSync(cacheDir)) {
+            const files = readdirSync(cacheDir);
+            const totalBytes = files.reduce((sum, f) => {
+                try {
+                    return sum + statSync(path.join(cacheDir, f)).size;
+                }
+                catch {
+                    return sum;
+                }
+            }, 0);
+            console.log(`[Cache] ${cacheDir} — ${files.length} file(s), ${(totalBytes / 1_048_576).toFixed(1)} MB`);
+        }
+        else {
+            console.warn(`[Cache] Directory not found: ${cacheDir}`);
+        }
         JOBS = await scrapeJobsMain();
         console.log(`Loaded ${JOBS.length} jobs at startup.`);
-        const cached = await top100Search.refresh(JOBS);
-        console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
+        if (!IS_PRODUCTION) {
+            const cached = await top100Search.refresh(JOBS);
+            console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
+        }
+        else {
+            console.log('[Top100Search] Skipping eager startup cache build in production; will build lazily on first request.');
+        }
     }
     catch (err) {
         console.error('Failed to scrape jobs on startup:', err);
@@ -284,6 +307,14 @@ io.on('connection', (socket) => {
 httpServer.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
+function bytesToMb(value) {
+    return (value / (1024 * 1024)).toFixed(1);
+}
+const memoryHeartbeat = setInterval(() => {
+    const usage = process.memoryUsage();
+    console.log(`[Heartbeat] memory rss=${bytesToMb(usage.rss)}MB heapUsed=${bytesToMb(usage.heapUsed)}MB heapTotal=${bytesToMb(usage.heapTotal)}MB external=${bytesToMb(usage.external)}MB arrayBuffers=${bytesToMb(usage.arrayBuffers)}MB`);
+}, MEMORY_HEARTBEAT_MS);
+memoryHeartbeat.unref();
 let shuttingDown = false;
 async function gracefulShutdown(signal) {
     if (shuttingDown) {
@@ -291,6 +322,7 @@ async function gracefulShutdown(signal) {
     }
     shuttingDown = true;
     console.log(`Received ${signal}. Starting graceful shutdown...`);
+    clearInterval(memoryHeartbeat);
     const timeout = setTimeout(() => {
         console.error(`Forced shutdown after ${SHUTDOWN_TIMEOUT_MS}ms timeout.`);
         process.exit(1);

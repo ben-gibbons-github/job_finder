@@ -96,6 +96,10 @@ interface ScraperComponent {
 const SCRAPE_JOBS_ON_PRODUCTION = false;
 const SCRAPE_JOBS_ON_DEV = false;
 
+function shouldRunBackgroundGeocodeInCurrentEnv(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
+
 function shouldScrapeInCurrentEnv(): boolean {
   const isProduction = process.env.NODE_ENV === 'production';
   return isProduction ? SCRAPE_JOBS_ON_PRODUCTION : SCRAPE_JOBS_ON_DEV;
@@ -496,7 +500,11 @@ export async function scrapeJobsMain() {
     console.log(`Removed ${removedDuplicates} duplicate jobs by source_url`);
   }
 
-  startBackgroundGeocodeJobs(dedupedJobs);
+  if (shouldRunBackgroundGeocodeInCurrentEnv()) {
+    startBackgroundGeocodeJobs(dedupedJobs);
+  } else {
+    console.log('[BackgroundGeocode] Skipped startup geocoding in production.');
+  }
 
   const employerDatastore = new Map<string, ScrapedEmployer>();
   for (const cachedEmployer of scrapedEmployerCache.getAllCachedEmployers()) {
@@ -553,9 +561,20 @@ export async function scrapeJobsMain() {
     employer.employeeQualityOfLifeScore > 0 ||
     String(employer.employeeQualityOfLifeSummary ?? '').trim().length > 0;
 
-  const auditEmployerCount = employers.filter(hasAuditData).length;
-  const impactEmployerCount = employers.filter(hasImpactData).length;
-  const qualityOfLifeEmployerCount = employers.filter(hasQualityOfLifeData).length;
+  let auditEmployerCount = 0;
+  let impactEmployerCount = 0;
+  let qualityOfLifeEmployerCount = 0;
+  for (const employer of employers) {
+    if (hasAuditData(employer)) {
+      auditEmployerCount += 1;
+    }
+    if (hasImpactData(employer)) {
+      impactEmployerCount += 1;
+    }
+    if (hasQualityOfLifeData(employer)) {
+      qualityOfLifeEmployerCount += 1;
+    }
+  }
 
   const toPercent = (count: number): string => {
     if (totalEmployers === 0) {
@@ -573,9 +592,13 @@ export async function scrapeJobsMain() {
     ].join(' ')
   );
 
-  const uniqueEmployers = new Set(
-    dedupedJobs.map((job) => String(job.company_name ?? '').trim().toLowerCase()).filter(Boolean)
-  )
+  const uniqueEmployers = new Set<string>();
+  for (const job of dedupedJobs) {
+    const normalizedEmployer = String(job.company_name ?? '').trim().toLowerCase();
+    if (normalizedEmployer.length > 0) {
+      uniqueEmployers.add(normalizedEmployer);
+    }
+  }
 
   console.log(`Total jobs collected: ${dedupedJobs.length} from ${uniqueEmployers.size} unique employers`)
   return dedupedJobs;

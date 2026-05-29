@@ -104,6 +104,8 @@ function normalizeJob(job) {
         company_name: employerName,
         location: locations.length > 0 ? locations[0] : 'Remote',
         remote: remoteStatus,
+        location_lat: 0,
+        location_lon: 0,
         description: decodeHtmlEntities(description),
         type: jobTypes.length > 0 ? jobTypes[0] : 'Full-time',
         source: 'ClimateBase',
@@ -194,10 +196,14 @@ export async function fetchAllClimatebaseJobs() {
         }
         try {
             const { lat, lon } = await locationPromises.get(locationKey);
-            return { ...norm, location_lat: lat, location_lon: lon };
+            norm.location_lat = lat;
+            norm.location_lon = lon;
+            return norm;
         }
         catch {
-            return { ...norm, location_lat: 0, location_lon: 0 };
+            norm.location_lat = 0;
+            norm.location_lon = 0;
+            return norm;
         }
     }));
     return normalized;

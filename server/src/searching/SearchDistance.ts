@@ -310,7 +310,7 @@ export async function geocodeJobLocations(jobs: ScrapedJob[], shouldLog = false)
     return false
   }
 
-  return Promise.all(
+  await Promise.all(
     jobs.map(async (job) => {
       let lat = job.location_lat
       let lon = job.location_lon
@@ -324,7 +324,7 @@ export async function geocodeJobLocations(jobs: ScrapedJob[], shouldLog = false)
           (lat === 0 && lon === 0))
       ) {
         if (shouldSkipGeocodeForJob(job)) {
-          return { ...job, location_lat: lat, location_lon: lon }
+            return
         }
 
         const locationKey = normalizeLocationKey(job.location)
@@ -342,8 +342,11 @@ export async function geocodeJobLocations(jobs: ScrapedJob[], shouldLog = false)
           // console.warn('Failed to geocode job location:', job.location, 'for job:', job.name, e)
         }
       }
-      
-      return { ...job, location_lat: lat, location_lon: lon }
+
+      job.location_lat = lat
+      job.location_lon = lon
     })
   )
+
+  return jobs
 }

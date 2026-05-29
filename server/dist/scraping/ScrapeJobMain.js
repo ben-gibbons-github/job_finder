@@ -79,6 +79,15 @@ import scrapedEmployerCache from './ScrapedEmployerCache.js';
 import { gatherLegacyAIData } from './GatherLegacyAIData.js';
 import { startBackgroundGeocodeJobs } from '../utils/BackgroundGeocode.js';
 import { ensureCacheDir, readAnyCache, readFreshCache, writeCache, } from './ScrapingCache.js';
+const SCRAPE_JOBS_ON_PRODUCTION = false;
+const SCRAPE_JOBS_ON_DEV = false;
+function shouldRunBackgroundGeocodeInCurrentEnv() {
+    return process.env.NODE_ENV !== 'production';
+}
+function shouldScrapeInCurrentEnv() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    return isProduction ? SCRAPE_JOBS_ON_PRODUCTION : SCRAPE_JOBS_ON_DEV;
+}
 function normalizeEmployerName(name) {
     return String(name ?? '').trim().toLowerCase();
 }
@@ -393,6 +402,15 @@ const SCRAPER_COMPONENTS = [
     },
 ];
 async function loadComponentJobs(component) {
+    if (!shouldScrapeInCurrentEnv()) {
+        const cachedJobs = await readAnyCache(component.name);
+        if (cachedJobs) {
+            console.log(`Scraping disabled for current environment. Loaded ${cachedJobs.length} cached jobs for ${component.name}`);
+            return cachedJobs;
+        }
+        console.warn(`Scraping disabled for current environment and no cache found for ${component.name}. Returning 0 jobs.`);
+        return [];
+    }
     const cachedJobs = await readFreshCache(component.name);
     if (cachedJobs) {
         console.log(`Loaded ${cachedJobs.length} jobs from cache for ${component.name}`);
@@ -438,7 +456,12 @@ export async function scrapeJobsMain() {
     if (removedDuplicates > 0) {
         console.log(`Removed ${removedDuplicates} duplicate jobs by source_url`);
     }
-    startBackgroundGeocodeJobs(dedupedJobs);
+    if (shouldRunBackgroundGeocodeInCurrentEnv()) {
+        startBackgroundGeocodeJobs(dedupedJobs);
+    }
+    else {
+        console.log('[BackgroundGeocode] Skipped startup geocoding in production.');
+    }
     const employerDatastore = new Map();
     for (const cachedEmployer of scrapedEmployerCache.getAllCachedEmployers()) {
         const key = normalizeEmployerName(cachedEmployer.name);
@@ -481,9 +504,20 @@ export async function scrapeJobsMain() {
     const hasImpactData = (employer) => employer.ai_impact_score > 0 || String(employer.ai_impact_summary ?? '').trim().length > 0;
     const hasQualityOfLifeData = (employer) => employer.employeeQualityOfLifeScore > 0 ||
         String(employer.employeeQualityOfLifeSummary ?? '').trim().length > 0;
-    const auditEmployerCount = employers.filter(hasAuditData).length;
-    const impactEmployerCount = employers.filter(hasImpactData).length;
-    const qualityOfLifeEmployerCount = employers.filter(hasQualityOfLifeData).length;
+    let auditEmployerCount = 0;
+    let impactEmployerCount = 0;
+    let qualityOfLifeEmployerCount = 0;
+    for (const employer of employers) {
+        if (hasAuditData(employer)) {
+            auditEmployerCount += 1;
+        }
+        if (hasImpactData(employer)) {
+            impactEmployerCount += 1;
+        }
+        if (hasQualityOfLifeData(employer)) {
+            qualityOfLifeEmployerCount += 1;
+        }
+    }
     const toPercent = (count) => {
         if (totalEmployers === 0) {
             return '0.0';
@@ -496,7 +530,13 @@ export async function scrapeJobsMain() {
         `impact ${impactEmployerCount}/${totalEmployers} (${toPercent(impactEmployerCount)}%)`,
         `qualityOfLife ${qualityOfLifeEmployerCount}/${totalEmployers} (${toPercent(qualityOfLifeEmployerCount)}%)`,
     ].join(' '));
-    const uniqueEmployers = new Set(dedupedJobs.map((job) => String(job.company_name ?? '').trim().toLowerCase()).filter(Boolean));
+    const uniqueEmployers = new Set();
+    for (const job of dedupedJobs) {
+        const normalizedEmployer = String(job.company_name ?? '').trim().toLowerCase();
+        if (normalizedEmployer.length > 0) {
+            uniqueEmployers.add(normalizedEmployer);
+        }
+    }
     console.log(`Total jobs collected: ${dedupedJobs.length} from ${uniqueEmployers.size} unique employers`);
     return dedupedJobs;
 }
