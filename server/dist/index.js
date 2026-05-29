@@ -44,13 +44,8 @@ const top100Search = new Top100Search(searchMain);
         }
         JOBS = await scrapeJobsMain();
         console.log(`Loaded ${JOBS.length} jobs at startup.`);
-        if (!IS_PRODUCTION) {
-            const cached = await top100Search.refresh(JOBS);
-            console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
-        }
-        else {
-            console.log('[Top100Search] Skipping eager startup cache build in production; will build lazily on first request.');
-        }
+        const cached = await top100Search.refresh(JOBS);
+        console.log(`Built default cached search results: ${cached.results.length}/${cached.total}`);
     }
     catch (err) {
         console.error('Failed to scrape jobs on startup:', err);

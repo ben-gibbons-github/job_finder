@@ -38,6 +38,10 @@ fly secrets set \
   EIGHTYK_HOURS_ALGOLIA_API_KEY=... \
   GEOAPIFY_API_KEY=... \
   MAPQUEST_API_KEY=... \
+  ASHBY_FEED_ENDPOINTS=... \
+  ASHBY_ORGS=openai,anthropic,stripe \
+  GREENHOUSE_BOARDS=stripe \
+  LEVER_BOARDS=palantir \
   AUDIT_ALL_MAX_CONCURRENCY=4 \
   AUDIT_ALL_MAX_JOBS=250 \
   SHUTDOWN_TIMEOUT_MS=10000 \
@@ -81,3 +85,4 @@ Then open `https://<your-fly-app>.fly.dev` and verify:
 - `CACHE_SEED_MODE=missing` (recommended) only copies missing files from `cache_seed` to mounted cache volume.
 - `CACHE_SEED_MODE=overwrite` forces mounted cache files to refresh from git-uploaded seed caches at startup.
 - `CACHE_SEED_MODE=off` disables startup seeding.
+- `ASHBY_FEED_ENDPOINTS`, `ASHBY_ORGS`, `GREENHOUSE_BOARDS`, and `LEVER_BOARDS` control how many boards/orgs are ingested; if omitted, the app falls back to tiny default sets.

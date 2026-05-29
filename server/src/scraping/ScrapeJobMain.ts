@@ -109,6 +109,48 @@ function normalizeEmployerName(name: string | undefined | null): string {
   return String(name ?? '').trim().toLowerCase();
 }
 
+function summarizeCsvEnv(name: string, fallbackValues: string[] = []): string {
+  const rawValue = process.env[name];
+  const parsedValues = (rawValue || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (parsedValues.length > 0) {
+    const preview = parsedValues.slice(0, 5).join(', ');
+    const suffix = parsedValues.length > 5 ? ', ...' : '';
+    return `${name}=set(${parsedValues.length}) [${preview}${suffix}]`;
+  }
+
+  if (fallbackValues.length > 0) {
+    return `${name}=missing -> default(${fallbackValues.length}) [${fallbackValues.slice(0, 5).join(', ')}${fallbackValues.length > 5 ? ', ...' : ''}]`;
+  }
+
+  return `${name}=missing`;
+}
+
+function summarizeSecret(name: string): string {
+  return `${name}=${process.env[name] ? 'set' : 'missing'}`;
+}
+
+function logScraperEnvDiagnostics(): void {
+  const diagnostics = [
+    `NODE_ENV=${process.env.NODE_ENV || 'unset'}`,
+    `CACHE_SEED_MODE=${process.env.CACHE_SEED_MODE || 'unset'}`,
+    summarizeSecret('CLIMATEBASE_ALGOLIA_API_KEY'),
+    summarizeSecret('ESCAPE_THE_CITY_ALGOLIA_API_KEY'),
+    summarizeSecret('EIGHTYK_HOURS_ALGOLIA_API_KEY'),
+    summarizeSecret('GEOAPIFY_API_KEY'),
+    summarizeSecret('MAPQUEST_API_KEY'),
+    summarizeCsvEnv('ASHBY_FEED_ENDPOINTS'),
+    summarizeCsvEnv('ASHBY_ORGS', ['openai', 'anthropic', 'stripe']),
+    summarizeCsvEnv('GREENHOUSE_BOARDS', ['stripe']),
+    summarizeCsvEnv('LEVER_BOARDS', ['palantir']),
+  ];
+
+  console.log(`[ScrapeEnv] ${diagnostics.join(' | ')}`);
+}
+
 const SCRAPER_COMPONENTS: ScraperComponent[] = [
   {
     name: 'ClimateBase',
@@ -469,6 +511,7 @@ export async function scrapeJobsMain() {
   const jobs: ScrapedJob[] = [];
 
   console.log('Starting job scraping...');
+  logScraperEnvDiagnostics();
 
   await ensureCacheDir();
 
