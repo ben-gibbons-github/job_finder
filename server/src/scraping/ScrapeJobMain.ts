@@ -93,8 +93,8 @@ interface ScraperComponent {
   scrapeJobs: () => Promise<ScrapedJob[]>;
 }
 
-const SCRAPE_JOBS_ON_PRODUCTION = true;
-const SCRAPE_JOBS_ON_DEV = true;
+const SCRAPE_JOBS_ON_PRODUCTION = false;
+const SCRAPE_JOBS_ON_DEV = false;
 
 function shouldRunBackgroundGeocodeInCurrentEnv(): boolean {
   return process.env.NODE_ENV !== 'production';
